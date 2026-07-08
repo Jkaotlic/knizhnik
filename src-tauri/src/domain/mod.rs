@@ -1,4 +1,5 @@
 pub mod isbn;
+pub mod breadcrumb;
 
 #[cfg(test)]
 mod smoke {
