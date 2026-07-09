@@ -109,4 +109,4 @@ docs/superpowers/        спека и план реализации
 
 ## Лицензия
 
-[MIT](LICENSE) © 2026 asnekhaev
+[MIT](LICENSE) © 2026 Jkaotlic
