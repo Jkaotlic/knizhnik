@@ -13,6 +13,13 @@ export function ShelfView({ shelfId }: { shelfId: number }) {
   };
   useEffect(reload, [shelfId]);
 
+  const lend = async (b: Book) => {
+    const who = prompt("Кому выдана?");
+    if (who === null) return;
+    await api.bookSetAvailability(b.id, who ? "lent" : "on_shelf", who || null);
+    reload();
+  };
+
   return (
     <div>
       <h2>{crumb}</h2>
@@ -23,6 +30,7 @@ export function ShelfView({ shelfId }: { shelfId: number }) {
           {b.availability !== "on_shelf" && (
             <span className="muted">не на полке{b.lent_to ? `: ${b.lent_to}` : ""}</span>
           )}
+          <button onClick={() => lend(b)}>Выдача</button>
         </div>
       ))}
       {editing && <BookEditor book={editing} onDone={() => { setEditing(null); reload(); }} />}
