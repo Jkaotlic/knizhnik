@@ -142,18 +142,17 @@ mod tests {
         assert_eq!(get(&conn, shelf).unwrap().parent_id, Some(case2));
     }
 
-    // re-enable in Task 6 (needs db::books)
-    // #[test]
-    // fn delete_shelf_with_books_is_rejected() {
-    //     let conn = open_in_memory().unwrap();
-    //     let (_r, _room, _case, shelf) = tree(&conn);
-    //     let mut input = crate::db::models::BookInput::default();
-    //     input.title = "Дюна".into();
-    //     input.shelf_id = Some(shelf);
-    //     crate::db::books::insert(&conn, &input).unwrap();
-    //     let err = delete(&conn, shelf).unwrap_err();
-    //     assert!(matches!(err, AppError::Rule(_)));
-    //     // книга цела
-    //     assert_eq!(crate::db::books::on_shelf(&conn, shelf).unwrap().len(), 1);
-    // }
+    #[test]
+    fn delete_shelf_with_books_is_rejected() {
+        let conn = open_in_memory().unwrap();
+        let (_r, _room, _case, shelf) = tree(&conn);
+        let mut input = crate::db::models::BookInput::default();
+        input.title = "Дюна".into();
+        input.shelf_id = Some(shelf);
+        crate::db::books::insert(&conn, &input).unwrap();
+        let err = delete(&conn, shelf).unwrap_err();
+        assert!(matches!(err, AppError::Rule(_)));
+        // книга цела
+        assert_eq!(crate::db::books::on_shelf(&conn, shelf).unwrap().len(), 1);
+    }
 }

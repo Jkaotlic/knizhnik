@@ -1,3 +1,4 @@
+pub mod books;
 pub mod locations;
 pub mod models;
 
