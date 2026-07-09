@@ -1,51 +1,38 @@
 import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
+import { LocationTree } from "./components/LocationTree";
+import { ShelfView } from "./components/ShelfView";
+import { CaptureMode } from "./components/CaptureMode";
+import { SearchView } from "./components/SearchView";
+import { StatsView } from "./components/StatsView";
 import "./App.css";
 
-function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+type Tab = "locations" | "shelf" | "capture" | "search" | "stats";
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
-  }
+export default function App() {
+  const [tab, setTab] = useState<Tab>("locations");
+  const [activeShelf, setActiveShelf] = useState<number | null>(null);
+
+  const openShelf = (id: number) => {
+    setActiveShelf(id);
+    setTab("shelf");
+  };
 
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
-
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
+    <div className="app">
+      <nav className="tabs">
+        <button onClick={() => setTab("locations")} className={tab === "locations" ? "on" : ""}>Локации</button>
+        <button onClick={() => setTab("shelf")} className={tab === "shelf" ? "on" : ""} disabled={!activeShelf}>Полка</button>
+        <button onClick={() => setTab("capture")} className={tab === "capture" ? "on" : ""}>Капчур</button>
+        <button onClick={() => setTab("search")} className={tab === "search" ? "on" : ""}>Поиск</button>
+        <button onClick={() => setTab("stats")} className={tab === "stats" ? "on" : ""}>Статистика</button>
+      </nav>
+      <main className="content">
+        {tab === "locations" && <LocationTree onOpenShelf={openShelf} />}
+        {tab === "shelf" && activeShelf && <ShelfView shelfId={activeShelf} />}
+        {tab === "capture" && <CaptureMode />}
+        {tab === "search" && <SearchView onOpenShelf={openShelf} />}
+        {tab === "stats" && <StatsView />}
+      </main>
+    </div>
   );
 }
-
-export default App;
