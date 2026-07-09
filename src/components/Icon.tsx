@@ -16,7 +16,8 @@ type Name =
   | "download"
   | "globe"
   | "check"
-  | "settings";
+  | "settings"
+  | "addbook";
 
 const paths: Record<Name, ReactNode> = {
   locations: (
@@ -92,6 +93,13 @@ const paths: Record<Name, ReactNode> = {
     <>
       <circle cx="12" cy="12" r="3.2" />
       <path d="M12 3.5v2.2M12 18.3v2.2M4.6 7.5l1.9 1.1M17.5 15.4l1.9 1.1M4.6 16.5l1.9-1.1M17.5 8.6l1.9-1.1" />
+    </>
+  ),
+  addbook: (
+    <>
+      <path d="M5 4h8a1 1 0 0 1 1 1v9H6a2 2 0 0 1-2-2V5a1 1 0 0 1 1-1z" />
+      <path d="M8 4v10" />
+      <path d="M18 15v6M15 18h6" />
     </>
   ),
 };
