@@ -91,4 +91,6 @@ export const api = {
   capture: (shelf_id: number, isbn: string) => invoke<CaptureResult>("capture", { shelfId: shelf_id, isbn }),
   statsSummary: () => invoke<Stats>("stats_summary"),
   exportCsv: () => invoke<string>("export_csv"),
+  getGoogleKey: () => invoke<string>("settings_get_google_key"),
+  setGoogleKey: (key: string) => invoke<void>("settings_set_google_key", { key }),
 };

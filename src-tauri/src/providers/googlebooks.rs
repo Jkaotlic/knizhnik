@@ -1,6 +1,6 @@
 use crate::domain::matching::MetadataCandidate;
 use crate::error::AppError;
-use crate::providers::MetadataProvider;
+use crate::providers::{MetadataProvider, SharedApiKey};
 use async_trait::async_trait;
 
 pub fn parse_volumes_response(json: &str) -> Vec<MetadataCandidate> {
@@ -73,15 +73,21 @@ pub fn parse_volumes_response(json: &str) -> Vec<MetadataCandidate> {
 
 pub struct GoogleBooks {
     client: reqwest::Client,
+    api_key: SharedApiKey,
 }
 
 impl GoogleBooks {
-    pub fn new(client: reqwest::Client) -> Self {
-        Self { client }
+    pub fn new(client: reqwest::Client, api_key: SharedApiKey) -> Self {
+        Self { client, api_key }
     }
 
     async fn fetch(&self, q: &str) -> Result<Vec<MetadataCandidate>, AppError> {
-        let url = format!("https://www.googleapis.com/books/v1/volumes?q={q}&maxResults=5");
+        let mut url = format!("https://www.googleapis.com/books/v1/volumes?q={q}&maxResults=5&country=RU");
+        // ключ (если задан в настройках) снимает анонимный лимит 429 и расширяет покрытие
+        let key = self.api_key.read().unwrap().clone();
+        if let Some(k) = key.filter(|s| !s.is_empty()) {
+            url.push_str(&format!("&key={k}"));
+        }
         let body = self
             .client
             .get(&url)

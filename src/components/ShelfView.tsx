@@ -55,7 +55,7 @@ export function ShelfView({ shelfId }: { shelfId: number }) {
 
       <div className="shelf">
         {books.length === 0 ? (
-          <div className="shelf__empty">Полка пустует — занеси книги в режиме «Капчур».</div>
+          <div className="shelf__empty">Полка пустует — добавь книги в разделе «Сканирование».</div>
         ) : (
           <div className="shelf__spines">
             {books.map((b) => (

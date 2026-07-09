@@ -5,6 +5,9 @@ use async_trait::async_trait;
 pub mod googlebooks;
 pub mod openlibrary;
 
+/// Разделяемый API-ключ (напр. Google Books), обновляемый из настроек в рантайме.
+pub type SharedApiKey = std::sync::Arc<std::sync::RwLock<Option<String>>>;
+
 #[async_trait]
 pub trait MetadataProvider: Send + Sync {
     async fn lookup_isbn(&self, isbn: &str) -> Result<Vec<MetadataCandidate>, AppError>;

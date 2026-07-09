@@ -4,17 +4,19 @@ import { ShelfView } from "./components/ShelfView";
 import { CaptureMode } from "./components/CaptureMode";
 import { SearchView } from "./components/SearchView";
 import { StatsView } from "./components/StatsView";
+import { SettingsView } from "./components/SettingsView";
 import { Icon } from "./components/Icon";
 import "./App.css";
 
-type Tab = "locations" | "shelf" | "capture" | "search" | "stats";
+type Tab = "locations" | "shelf" | "capture" | "search" | "stats" | "settings";
 
 const NAV: { id: Tab; label: string; icon: Parameters<typeof Icon>[0]["name"] }[] = [
   { id: "locations", label: "Локации", icon: "locations" },
   { id: "shelf", label: "Полка", icon: "shelf" },
-  { id: "capture", label: "Капчур", icon: "capture" },
+  { id: "capture", label: "Сканирование", icon: "capture" },
   { id: "search", label: "Поиск", icon: "search" },
   { id: "stats", label: "Статистика", icon: "stats" },
+  { id: "settings", label: "Настройки", icon: "settings" },
 ];
 
 export default function App() {
@@ -56,6 +58,7 @@ export default function App() {
           {tab === "capture" && <CaptureMode />}
           {tab === "search" && <SearchView onOpenShelf={openShelf} />}
           {tab === "stats" && <StatsView />}
+          {tab === "settings" && <SettingsView />}
         </div>
       </main>
     </div>

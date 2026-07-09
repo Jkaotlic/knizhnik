@@ -15,7 +15,8 @@ type Name =
   | "hand"
   | "download"
   | "globe"
-  | "check";
+  | "check"
+  | "settings";
 
 const paths: Record<Name, ReactNode> = {
   locations: (
@@ -87,6 +88,12 @@ const paths: Record<Name, ReactNode> = {
     </>
   ),
   check: <path d="M5 12l4 4 10-10" />,
+  settings: (
+    <>
+      <circle cx="12" cy="12" r="3.2" />
+      <path d="M12 3.5v2.2M12 18.3v2.2M4.6 7.5l1.9 1.1M17.5 15.4l1.9 1.1M4.6 16.5l1.9-1.1M17.5 8.6l1.9-1.1" />
+    </>
+  ),
 };
 
 export function Icon({ name, size = 18 }: { name: Name; size?: number }) {

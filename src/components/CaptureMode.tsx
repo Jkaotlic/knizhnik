@@ -51,8 +51,8 @@ export function CaptureMode() {
     <div>
       <div className="page-head">
         <div>
-          <div className="eyebrow">Капчур на полку</div>
-          <h2 className="page-title">Занеси полку сканером</h2>
+          <div className="eyebrow">Сканирование на полку</div>
+          <h2 className="page-title">Добавляй книги сканером</h2>
         </div>
         <div className="counter">
           <span className="counter__num">{count}</span>

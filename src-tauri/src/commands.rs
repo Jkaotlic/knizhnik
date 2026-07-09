@@ -4,13 +4,15 @@ use crate::db::locations;
 use crate::db::models::{Book, BookInput, Location, Stats};
 use crate::error::AppError;
 use crate::export;
-use crate::providers::MetadataService;
+use crate::db::settings;
+use crate::providers::{MetadataService, SharedApiKey};
 use std::sync::Mutex;
 use tauri::State;
 
 pub struct AppState {
     pub db: Mutex<rusqlite::Connection>,
     pub metadata: MetadataService,
+    pub google_key: SharedApiKey,
 }
 
 // --- Локации ---
@@ -134,4 +136,19 @@ pub fn stats_summary(state: State<AppState>) -> Result<Stats, AppError> {
 #[tauri::command]
 pub fn export_csv(state: State<AppState>) -> Result<String, AppError> {
     export::export_csv(&state.db.lock().unwrap())
+}
+
+// --- Настройки ---
+#[tauri::command]
+pub fn settings_get_google_key(state: State<AppState>) -> Result<String, AppError> {
+    Ok(state.google_key.read().unwrap().clone().unwrap_or_default())
+}
+
+#[tauri::command]
+pub fn settings_set_google_key(state: State<AppState>, key: String) -> Result<(), AppError> {
+    let trimmed = key.trim();
+    let value = if trimmed.is_empty() { None } else { Some(trimmed) };
+    settings::set(&state.db.lock().unwrap(), "google_books_api_key", value)?;
+    *state.google_key.write().unwrap() = value.map(|s| s.to_string());
+    Ok(())
 }

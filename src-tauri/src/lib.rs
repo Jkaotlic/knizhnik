@@ -18,12 +18,15 @@ pub fn run() {
             let dir = app.path().app_data_dir().expect("нет app data dir");
             std::fs::create_dir_all(&dir).ok();
             let conn = db::open_at(&dir.join("knizhnik.sqlite3")).expect("не открыть БД");
+            let saved_key = db::settings::get(&conn, "google_books_api_key").unwrap_or(None);
+            let google_key: providers::SharedApiKey =
+                std::sync::Arc::new(std::sync::RwLock::new(saved_key));
             let client = reqwest::Client::new();
             let metadata = MetadataService::new(vec![
                 Box::new(OpenLibrary::new(client.clone())),
-                Box::new(GoogleBooks::new(client)),
+                Box::new(GoogleBooks::new(client, google_key.clone())),
             ]);
-            app.manage(AppState { db: std::sync::Mutex::new(conn), metadata });
+            app.manage(AppState { db: std::sync::Mutex::new(conn), metadata, google_key });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -45,6 +48,8 @@ pub fn run() {
             commands::capture,
             commands::stats_summary,
             commands::export_csv,
+            commands::settings_get_google_key,
+            commands::settings_set_google_key,
         ])
         .run(tauri::generate_context!())
         .expect("ошибка запуска Tauri");

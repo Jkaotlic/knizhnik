@@ -1,6 +1,7 @@
 pub mod books;
 pub mod locations;
 pub mod models;
+pub mod settings;
 
 use crate::error::AppError;
 use rusqlite::Connection;
@@ -71,6 +72,11 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
         );
         CREATE INDEX IF NOT EXISTS idx_books_shelf ON books(shelf_id);
         CREATE INDEX IF NOT EXISTS idx_books_isbn ON books(isbn);
+
+        CREATE TABLE IF NOT EXISTS settings (
+            key   TEXT PRIMARY KEY,
+            value TEXT
+        );
         "#,
     )?;
 
