@@ -1,0 +1,10 @@
+{
+  "ISBN:9785171183660": {
+    "title": "Дюна",
+    "authors": [{ "name": "Фрэнк Герберт" }],
+    "publish_date": "2019",
+    "publishers": [{ "name": "АСТ" }],
+    "number_of_pages": 704,
+    "cover": { "medium": "https://covers.openlibrary.org/b/id/123-M.jpg" }
+  }
+}

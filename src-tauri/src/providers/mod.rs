@@ -2,6 +2,8 @@ use crate::domain::matching::MetadataCandidate;
 use crate::error::AppError;
 use async_trait::async_trait;
 
+pub mod openlibrary;
+
 #[async_trait]
 pub trait MetadataProvider: Send + Sync {
     async fn lookup_isbn(&self, isbn: &str) -> Result<Vec<MetadataCandidate>, AppError>;
