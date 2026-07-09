@@ -1,7 +1,12 @@
-import { useState } from "react";
-import { api, Book, BookInput, Candidate } from "../api";
+import { useEffect, useState } from "react";
+import { api, Book, BookInput, Candidate, Location } from "../api";
 
 export function BookEditor({ book, onDone }: { book: Book; onDone: () => void }) {
+  const [shelves, setShelves] = useState<Location[]>([]);
+  useEffect(() => {
+    api.locationsAll().then((locs) => setShelves(locs.filter((l) => l.kind === "shelf")));
+  }, []);
+
   const [form, setForm] = useState<BookInput>({
     title: book.title,
     authors: book.authors ?? undefined,
@@ -62,9 +67,10 @@ export function BookEditor({ book, onDone }: { book: Book; onDone: () => void })
       <input
         type={type}
         value={(form[key] as string | number | undefined) ?? ""}
-        onChange={(e) =>
-          set(key, (type === "number" ? Number(e.target.value) || undefined : e.target.value) as never)
-        }
+        onChange={(e) => {
+          const v = e.target.value;
+          set(key, (type === "number" ? (v === "" ? undefined : Number(v)) : v) as never);
+        }}
       />
     </div>
   );
@@ -84,6 +90,18 @@ export function BookEditor({ book, onDone }: { book: Book; onDone: () => void })
       {field("Страниц", "pages", "number")}
       {field("Язык", "language")}
       {field("Жанр", "genre")}
+      <div className="row">
+        <label style={{ width: 110 }}>Полка</label>
+        <select
+          value={form.shelf_id ?? ""}
+          onChange={(e) => set("shelf_id", (e.target.value ? Number(e.target.value) : undefined) as never)}
+        >
+          <option value="">— без полки —</option>
+          {shelves.map((s) => (
+            <option key={s.id} value={s.id}>{s.name}{s.label ? ` [${s.label}]` : ""}</option>
+          ))}
+        </select>
+      </div>
       <div className="row">
         <label style={{ width: 110 }}>Статус</label>
         <select
