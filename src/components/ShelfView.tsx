@@ -3,6 +3,7 @@ import { api, Book } from "../api";
 import { spineColor } from "../theme";
 import { BookEditor } from "./BookEditor";
 import { Icon } from "./Icon";
+import { useDialog } from "./Dialog";
 
 function Breadcrumb({ path, label }: { path: string; label: string | null }) {
   const parts = path.split(" › ").filter(Boolean);
@@ -26,6 +27,7 @@ export function ShelfView({ shelfId }: { shelfId: number }) {
   const [label, setLabel] = useState<string | null>(null);
   const [books, setBooks] = useState<Book[]>([]);
   const [editing, setEditing] = useState<Book | null>(null);
+  const dlg = useDialog();
 
   const reload = useCallback(() => {
     api.locationBreadcrumb(shelfId).then(setCrumb);
@@ -35,7 +37,7 @@ export function ShelfView({ shelfId }: { shelfId: number }) {
   useEffect(reload, [reload]);
 
   const lend = async (b: Book) => {
-    const who = prompt("Кому выдана? (пусто — вернуть на полку)", b.lent_to ?? "");
+    const who = await dlg.prompt("Кому выдана? (пусто — вернуть на полку)", { defaultValue: b.lent_to ?? "" });
     if (who === null) return;
     await api.bookSetAvailability(b.id, who ? "lent" : "on_shelf", who || null);
     reload();

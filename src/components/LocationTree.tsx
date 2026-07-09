@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, Location, Kind } from "../api";
 import { kindLabel } from "../theme";
 import { Icon } from "./Icon";
+import { useDialog } from "./Dialog";
 
 const childKind: Record<Kind, Kind | null> = {
   root: "room",
@@ -20,6 +21,7 @@ export function LocationTree({ onOpenShelf }: { onOpenShelf: (id: number) => voi
   const [locs, setLocs] = useState<Location[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [movingId, setMovingId] = useState<number | null>(null);
+  const dlg = useDialog();
 
   const reload = () => api.locationsAll().then(setLocs).catch((e) => setError(String(e)));
   useEffect(() => { reload(); }, []);
@@ -30,28 +32,28 @@ export function LocationTree({ onOpenShelf }: { onOpenShelf: (id: number) => voi
   const addChild = async (parent: Location) => {
     const kind = childKind[parent.kind];
     if (!kind) return;
-    const name = prompt(`Название · ${kindLabel[kind]}`);
+    const name = await dlg.prompt(`Название · ${kindLabel[kind]}`);
     if (!name) return;
-    const label = kind === "shelf" ? prompt("Код полки, напр. A-3 (необязательно)") : null;
+    const label = kind === "shelf" ? await dlg.prompt("Код полки, напр. A-3 (необязательно)") : null;
     await api.locationCreate(parent.id, name, kind, label || null);
     reload();
   };
 
   const addRoot = async () => {
-    const name = prompt("Название дома / корня");
+    const name = await dlg.prompt("Название дома / корня", { placeholder: "напр. Квартира" });
     if (!name) return;
     await api.locationCreate(null, name, "root", null);
     reload();
   };
 
   const del = async (l: Location) => {
-    try { await api.locationDelete(l.id); reload(); } catch (e) { alert(String(e)); }
+    try { await api.locationDelete(l.id); reload(); } catch (e) { dlg.alert(String(e)); }
   };
 
   const rename = async (l: Location) => {
-    const newName = prompt("Новое название", l.name);
+    const newName = await dlg.prompt("Новое название", { defaultValue: l.name });
     if (!newName || newName === l.name) return;
-    try { await api.locationUpdate(l.id, newName, null); reload(); } catch (e) { alert(String(e)); }
+    try { await api.locationUpdate(l.id, newName, null); reload(); } catch (e) { dlg.alert(String(e)); }
   };
 
   const moveCandidates = (l: Location) => {
@@ -61,12 +63,12 @@ export function LocationTree({ onOpenShelf }: { onOpenShelf: (id: number) => voi
   };
 
   const startMove = (l: Location) => {
-    if (moveCandidates(l).length === 0) { alert("Нет подходящих родителей"); return; }
+    if (moveCandidates(l).length === 0) { dlg.alert("Нет подходящих родителей"); return; }
     setMovingId((cur) => (cur === l.id ? null : l.id));
   };
 
   const move = async (l: Location, newParentId: number) => {
-    try { await api.locationMove(l.id, newParentId); setMovingId(null); reload(); } catch (e) { alert(String(e)); }
+    try { await api.locationMove(l.id, newParentId); setMovingId(null); reload(); } catch (e) { dlg.alert(String(e)); }
   };
 
   const node = (l: Location) => (

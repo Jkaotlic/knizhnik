@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { Icon } from "./Icon";
+import { useDialog } from "./Dialog";
 
 export function SettingsView() {
+  const dlg = useDialog();
   const [key, setKey] = useState("");
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -27,7 +29,7 @@ export function SettingsView() {
   };
 
   const importBackup = async (file: File) => {
-    if (!confirm("Восстановить из копии? Текущий каталог (полки и книги) будет заменён.")) return;
+    if (!(await dlg.confirm("Восстановить из копии? Текущий каталог (полки и книги) будет заменён.", { okLabel: "Восстановить" }))) return;
     try {
       const text = await file.text();
       const s = await api.backupImport(text);

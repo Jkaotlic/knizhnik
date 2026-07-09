@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { api, Book, BookInput, Candidate, Location } from "../api";
 import { Icon } from "./Icon";
+import { useDialog } from "./Dialog";
 
 export function BookEditor({ book, onDone }: { book: Book; onDone: () => void }) {
+  const dlg = useDialog();
   const [shelves, setShelves] = useState<Location[]>([]);
   useEffect(() => {
     api.locationsAll().then((locs) => setShelves(locs.filter((l) => l.kind === "shelf")));
@@ -45,14 +47,19 @@ export function BookEditor({ book, onDone }: { book: Book; onDone: () => void })
     try {
       const cands = await api.metadataLookupIsbn(form.isbn);
       if (cands[0]) applyCandidate(cands[0]);
-      else alert("Метаданные не найдены");
+      else dlg.alert("Метаданные не найдены");
     } catch (e) {
-      alert(String(e));
+      dlg.alert(String(e));
     }
   };
 
   const save = async () => { await api.bookUpdate(book.id, form); onDone(); };
-  const remove = async () => { if (confirm("Удалить книгу?")) { await api.bookDelete(book.id); onDone(); } };
+  const remove = async () => {
+    if (await dlg.confirm("Удалить книгу?", { danger: true, okLabel: "Удалить" })) {
+      await api.bookDelete(book.id);
+      onDone();
+    }
+  };
 
   const field = (label: string, key: keyof BookInput, type: "text" | "number" = "text") => (
     <div className="field">
