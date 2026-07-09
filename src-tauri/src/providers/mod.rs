@@ -2,6 +2,7 @@ use crate::domain::matching::MetadataCandidate;
 use crate::error::AppError;
 use async_trait::async_trait;
 
+pub mod googlebooks;
 pub mod openlibrary;
 
 #[async_trait]
