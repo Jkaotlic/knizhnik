@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, Book, BookInput, Candidate, Location } from "../api";
+import { Icon } from "./Icon";
 
 export function BookEditor({ book, onDone }: { book: Book; onDone: () => void }) {
   const [shelves, setShelves] = useState<Location[]>([]);
@@ -50,21 +51,14 @@ export function BookEditor({ book, onDone }: { book: Book; onDone: () => void })
     }
   };
 
-  const save = async () => {
-    await api.bookUpdate(book.id, form);
-    onDone();
-  };
-  const remove = async () => {
-    if (confirm("Удалить книгу?")) {
-      await api.bookDelete(book.id);
-      onDone();
-    }
-  };
+  const save = async () => { await api.bookUpdate(book.id, form); onDone(); };
+  const remove = async () => { if (confirm("Удалить книгу?")) { await api.bookDelete(book.id); onDone(); } };
 
   const field = (label: string, key: keyof BookInput, type: "text" | "number" = "text") => (
-    <div className="row">
-      <label style={{ width: 110 }}>{label}</label>
+    <div className="field">
+      <span className="label">{label}</span>
       <input
+        className="input"
         type={type}
         value={(form[key] as string | number | undefined) ?? ""}
         onChange={(e) => {
@@ -76,35 +70,37 @@ export function BookEditor({ book, onDone }: { book: Book; onDone: () => void })
   );
 
   return (
-    <div style={{ border: "1px solid #ccc", padding: 12, marginTop: 8 }}>
+    <div className="editor">
       <h3>Правка книги</h3>
       {field("Название", "title")}
       {field("Авторы", "authors")}
-      <div className="row">
-        <label style={{ width: 110 }}>ISBN</label>
-        <input value={form.isbn ?? ""} onChange={(e) => set("isbn", e.target.value)} />
-        <button onClick={lookup}>Подтянуть по ISBN</button>
+      <div className="field">
+        <span className="label">ISBN</span>
+        <input className="input mono" value={form.isbn ?? ""} onChange={(e) => set("isbn", e.target.value)} />
+        <button className="btn btn--brass btn--sm" onClick={lookup}><Icon name="globe" size={15} /> Подтянуть</button>
       </div>
       {field("Год", "year", "number")}
       {field("Издатель", "publisher")}
       {field("Страниц", "pages", "number")}
       {field("Язык", "language")}
       {field("Жанр", "genre")}
-      <div className="row">
-        <label style={{ width: 110 }}>Полка</label>
+      <div className="field">
+        <span className="label">Полка</span>
         <select
+          className="select"
           value={form.shelf_id ?? ""}
           onChange={(e) => set("shelf_id", (e.target.value ? Number(e.target.value) : undefined) as never)}
         >
           <option value="">— без полки —</option>
           {shelves.map((s) => (
-            <option key={s.id} value={s.id}>{s.name}{s.label ? ` [${s.label}]` : ""}</option>
+            <option key={s.id} value={s.id}>{s.name}{s.label ? ` · ${s.label}` : ""}</option>
           ))}
         </select>
       </div>
-      <div className="row">
-        <label style={{ width: 110 }}>Статус</label>
+      <div className="field">
+        <span className="label">Статус</span>
         <select
+          className="select"
           value={form.status ?? ""}
           onChange={(e) => set("status", (e.target.value || undefined) as BookInput["status"])}
         >
@@ -116,10 +112,12 @@ export function BookEditor({ book, onDone }: { book: Book; onDone: () => void })
       </div>
       {field("Оценка (0–5)", "rating", "number")}
       {field("Заметки", "notes")}
-      <div className="row">
-        <button onClick={save}>Сохранить</button>
-        <button onClick={onDone}>Отмена</button>
-        <button onClick={remove}>Удалить</button>
+      <div className="btn-row" style={{ marginTop: 14 }}>
+        <button className="btn btn--primary" onClick={save}><Icon name="check" size={16} /> Сохранить</button>
+        <button className="btn btn--ghost" onClick={onDone}>Отмена</button>
+        <button className="btn btn--ghost btn--danger" onClick={remove} style={{ marginLeft: "auto" }}>
+          <Icon name="trash" size={16} /> Удалить
+        </button>
       </div>
     </div>
   );

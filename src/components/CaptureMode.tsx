@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { api, Location, CaptureResult } from "../api";
+import { spineColor } from "../theme";
+import { Icon } from "./Icon";
 
 interface FeedItem {
   title: string;
+  color: string;
   duplicate: boolean;
-  source: string;
   noMeta: boolean;
+  error: boolean;
 }
 
 export function CaptureMode() {
@@ -32,12 +35,12 @@ export function CaptureMode() {
     try {
       const r: CaptureResult = await api.capture(shelfId, isbn);
       setFeed((f) => [
-        { title: r.book.title, duplicate: r.is_possible_duplicate, source: r.source, noMeta: r.source === "none" },
+        { title: r.book.title, color: spineColor(r.book.id), duplicate: r.is_possible_duplicate, noMeta: r.source === "none", error: false },
         ...f,
       ]);
       setCount((c) => c + 1);
     } catch (err) {
-      setFeed((f) => [{ title: `Ошибка: ${String(err)}`, duplicate: false, source: "error", noMeta: false }, ...f]);
+      setFeed((f) => [{ title: String(err), color: "var(--rust)", duplicate: false, noMeta: false, error: true }, ...f]);
     } finally {
       setBusy(false);
       refocus();
@@ -46,32 +49,47 @@ export function CaptureMode() {
 
   return (
     <div>
-      <h2>Капчур на полку</h2>
-      <div className="row">
-        <label>Полка:</label>
-        <select value={shelfId ?? ""} onChange={(e) => setShelfId(Number(e.target.value) || null)}>
+      <div className="page-head">
+        <div>
+          <div className="eyebrow">Капчур на полку</div>
+          <h2 className="page-title">Занеси полку сканером</h2>
+        </div>
+        <div className="counter">
+          <span className="counter__num">{count}</span>
+          <span className="counter__lbl">за сессию</span>
+        </div>
+      </div>
+
+      <div className="capture__bar">
+        <span className="label muted">Полка</span>
+        <select className="select" value={shelfId ?? ""} onChange={(e) => setShelfId(Number(e.target.value) || null)}>
           <option value="">— выбери полку —</option>
           {shelves.map((s) => (
-            <option key={s.id} value={s.id}>{s.name}{s.label ? ` [${s.label}]` : ""}</option>
+            <option key={s.id} value={s.id}>{s.name}{s.label ? ` · ${s.label}` : ""}</option>
           ))}
         </select>
-        <span className="muted">Добавлено за сессию: {count}</span>
       </div>
-      <div className="row">
+
+      <div className={`scan${shelfId ? " is-armed" : ""}`}>
+        <span className="scan__dot" />
         <input
           ref={inputRef}
-          placeholder={shelfId ? "Сканируй ISBN…" : "Сначала выбери полку"}
+          className="scan__input"
+          placeholder={shelfId ? "Пикни штрихкод или введи ISBN и нажми Enter" : "Сначала выбери полку"}
           disabled={!shelfId}
           onKeyDown={onKey}
           autoFocus
         />
+        <span className="scan__hint">{busy ? "ищу…" : "ISBN + Enter"}</span>
       </div>
-      <ul>
+
+      <ul className="feed">
         {feed.map((item, i) => (
-          <li key={i}>
-            ✓ {item.title}
-            {item.duplicate && <span className="muted"> — возможно дубль</span>}
-            {item.noMeta && <span className="muted"> — метаданные не найдены, дозаполни вручную</span>}
+          <li key={feed.length - i} className={`feed__item${item.error ? " is-error" : ""}`} style={{ borderLeftColor: item.color }}>
+            <span className="feed__check"><Icon name={item.error ? "search" : "check"} size={14} /></span>
+            <span className="feed__title">{item.title}</span>
+            {item.duplicate && <span className="chip chip--brass">возможно дубль</span>}
+            {item.noMeta && <span className="chip">без метаданных — дозаполни</span>}
           </li>
         ))}
       </ul>

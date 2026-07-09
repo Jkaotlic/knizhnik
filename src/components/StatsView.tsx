@@ -1,12 +1,25 @@
 import { useEffect, useState } from "react";
 import { api, Stats } from "../api";
+import { statusRu } from "../theme";
+import { Icon } from "./Icon";
 
-const statusRu: Record<string, string> = {
-  want: "хочу прочитать",
-  reading: "читаю",
-  read: "прочитано",
-  "не указан": "не указан",
-};
+function Bars({ data }: { data: [string, number][] }) {
+  if (data.length === 0) return <p className="muted small">Пока нет данных</p>;
+  const max = Math.max(...data.map(([, n]) => n));
+  return (
+    <div className="bars">
+      {data.map(([name, n], i) => (
+        <div className="bar" key={name}>
+          <span className="bar__name">{name}</span>
+          <span className="bar__track">
+            <span className="bar__fill" style={{ width: `${(n / max) * 100}%`, animationDelay: `${i * 60}ms` }} />
+          </span>
+          <span className="bar__val">{n}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export function StatsView() {
   const [stats, setStats] = useState<Stats | null>(null);
@@ -28,14 +41,30 @@ export function StatsView() {
 
   return (
     <div>
-      <h2>Статистика</h2>
-      <p>Всего книг: {stats.total}</p>
-      <p>Страниц прочитано: {stats.pages_read}</p>
-      <h3>По статусам</h3>
-      <ul>{stats.by_status.map(([k, n]) => <li key={k}>{statusRu[k] ?? k}: {n}</li>)}</ul>
-      <h3>Топ жанров</h3>
-      <ul>{stats.top_genres.map(([g, n]) => <li key={g}>{g}: {n}</li>)}</ul>
-      <button onClick={exportCsv}>Экспорт в CSV</button>
+      <div className="page-head">
+        <div>
+          <div className="eyebrow">Статистика</div>
+          <h2 className="page-title">Твоя библиотека в цифрах</h2>
+        </div>
+        <button className="btn" onClick={exportCsv}><Icon name="download" size={16} /> Экспорт в CSV</button>
+      </div>
+
+      <div className="stat-grid">
+        <div className="stat">
+          <div className="stat__num">{stats.total}</div>
+          <div className="stat__lbl">всего книг</div>
+        </div>
+        <div className="stat" style={{ animationDelay: "70ms" }}>
+          <div className="stat__num">{stats.pages_read.toLocaleString("ru-RU")}</div>
+          <div className="stat__lbl">страниц прочитано</div>
+        </div>
+      </div>
+
+      <div className="section-label">по статусам</div>
+      <Bars data={stats.by_status.map(([k, n]) => [statusRu[k] ?? k, n])} />
+
+      <div className="section-label">топ жанров</div>
+      <Bars data={stats.top_genres} />
     </div>
   );
 }
