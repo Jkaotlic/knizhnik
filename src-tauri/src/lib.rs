@@ -1,3 +1,4 @@
+mod capture;
 mod db;
 mod domain;
 mod error;
