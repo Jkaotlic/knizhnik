@@ -1,6 +1,7 @@
 mod db;
 mod domain;
 mod error;
+mod providers;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
