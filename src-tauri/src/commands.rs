@@ -152,3 +152,21 @@ pub fn settings_set_google_key(state: State<AppState>, key: String) -> Result<()
     *state.google_key.write().unwrap() = value.map(|s| s.to_string());
     Ok(())
 }
+
+// --- Резервная копия ---
+#[tauri::command]
+pub fn backup_export(state: State<AppState>) -> Result<String, AppError> {
+    let b = crate::db::backup::export(&state.db.lock().unwrap())?;
+    serde_json::to_string_pretty(&b).map_err(|e| AppError::Rule(e.to_string()))
+}
+
+#[tauri::command]
+pub fn backup_import(
+    state: State<AppState>,
+    json: String,
+) -> Result<crate::db::backup::ImportSummary, AppError> {
+    let backup: crate::db::backup::Backup = serde_json::from_str(&json)
+        .map_err(|_| AppError::Rule("Не удалось прочитать файл резервной копии".into()))?;
+    let mut guard = state.db.lock().unwrap();
+    crate::db::backup::import(&mut guard, &backup)
+}

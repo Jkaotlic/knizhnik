@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { Icon } from "./Icon";
 
@@ -7,7 +7,35 @@ export function SettingsView() {
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const [backupNote, setBackupNote] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => { api.getGoogleKey().then(setKey); }, []);
+
+  const stamp = () => new Date().toISOString().slice(0, 10);
+
+  const exportBackup = async () => {
+    const json = await api.backupExport();
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `knizhnik-backup-${stamp()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setBackupNote("Резервная копия сохранена.");
+  };
+
+  const importBackup = async (file: File) => {
+    if (!confirm("Восстановить из копии? Текущий каталог (полки и книги) будет заменён.")) return;
+    try {
+      const text = await file.text();
+      const s = await api.backupImport(text);
+      setBackupNote(`Восстановлено: полок ${s.locations}, книг ${s.books}. Переключись на другие вкладки, чтобы увидеть данные.`);
+    } catch (e) {
+      setBackupNote(`Не удалось: ${String(e)}`);
+    }
+  };
 
   const save = async () => {
     await api.setGoogleKey(key);
@@ -74,6 +102,40 @@ export function SettingsView() {
           Где взять: <span className="mono">console.cloud.google.com</span> → создать проект →
           включить <b>Books API</b> → «Credentials» → «Create API key». Ограничь ключ на Books API.
         </p>
+      </div>
+
+      <div className="editor" style={{ marginTop: 18 }}>
+        <h3>Резервная копия</h3>
+        <p className="small muted" style={{ marginTop: 4, lineHeight: 1.5 }}>
+          Данные и так сохраняются между обновлениями приложения. Резервная копия нужна, чтобы
+          перенести каталог на другой компьютер или подстраховаться. Файл <span className="mono">.json</span> хранит
+          все полки и книги (без API-ключа).
+        </p>
+
+        <div className="btn-row" style={{ marginTop: 14 }}>
+          <button className="btn btn--primary" onClick={exportBackup}>
+            <Icon name="download" size={16} /> Сохранить копию
+          </button>
+          <button className="btn btn--brass" onClick={() => fileRef.current?.click()}>
+            <Icon name="globe" size={16} /> Восстановить из файла
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="application/json,.json"
+            style={{ display: "none" }}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) importBackup(f);
+              e.target.value = "";
+            }}
+          />
+        </div>
+
+        <p className="small muted" style={{ marginTop: 12, lineHeight: 1.5 }}>
+          Восстановление <b>заменяет</b> текущий каталог данными из файла (id и связи книга↔полка сохраняются).
+        </p>
+        {backupNote && <p className="small" style={{ color: "var(--green)", marginTop: 8 }}>{backupNote}</p>}
       </div>
     </div>
   );

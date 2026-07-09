@@ -50,6 +50,8 @@ pub fn run() {
             commands::export_csv,
             commands::settings_get_google_key,
             commands::settings_set_google_key,
+            commands::backup_export,
+            commands::backup_import,
         ])
         .run(tauri::generate_context!())
         .expect("ошибка запуска Tauri");

@@ -73,6 +73,12 @@ pub fn get(conn: &Connection, id: i64) -> Result<Book, AppError> {
     Ok(conn.query_row(SELECT_BOOK_BY_ID, params![id], row_to_book)?)
 }
 
+pub fn all(conn: &Connection) -> Result<Vec<Book>, AppError> {
+    let mut stmt = conn.prepare(&format!("{SELECT_BOOK_COLS} ORDER BY id"))?;
+    let rows = stmt.query_map([], row_to_book)?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+}
+
 pub fn on_shelf(conn: &Connection, shelf_id: i64) -> Result<Vec<Book>, AppError> {
     let mut stmt = conn.prepare(&format!("{SELECT_BOOK_COLS} WHERE shelf_id=?1 ORDER BY title"))?;
     let rows = stmt.query_map(params![shelf_id], row_to_book)?;

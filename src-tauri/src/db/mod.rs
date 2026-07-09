@@ -1,5 +1,6 @@
 pub mod books;
 pub mod locations;
+pub mod backup;
 pub mod models;
 pub mod settings;
 

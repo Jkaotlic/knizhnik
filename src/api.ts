@@ -93,4 +93,6 @@ export const api = {
   exportCsv: () => invoke<string>("export_csv"),
   getGoogleKey: () => invoke<string>("settings_get_google_key"),
   setGoogleKey: (key: string) => invoke<void>("settings_set_google_key", { key }),
+  backupExport: () => invoke<string>("backup_export"),
+  backupImport: (json: string) => invoke<{ locations: number; books: number }>("backup_import", { json }),
 };
