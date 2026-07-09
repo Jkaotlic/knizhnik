@@ -1,3 +1,4 @@
+pub mod locations;
 pub mod models;
 
 use crate::error::AppError;
