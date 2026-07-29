@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
+import { save } from "@tauri-apps/plugin-dialog";
 import { api, Stats } from "../api";
 import { statusRu } from "../theme";
 import { Icon } from "./Icon";
+import { Note, useNote } from "./Note";
 
 function Bars({ data }: { data: [string, number][] }) {
   if (data.length === 0) return <p className="muted small">Пока нет данных</p>;
@@ -23,20 +25,29 @@ function Bars({ data }: { data: [string, number][] }) {
 
 export function StatsView() {
   const [stats, setStats] = useState<Stats | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const note = useNote();
 
-  useEffect(() => { api.statsSummary().then(setStats); }, []);
+  useEffect(() => {
+    api.statsSummary().then(setStats).catch((e) => setError(String(e)));
+  }, []);
 
   const exportCsv = async () => {
-    const csv = await api.exportCsv();
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "knizhnik.csv";
-    a.click();
-    URL.revokeObjectURL(url);
+    note.clear();
+    try {
+      const path = await save({
+        defaultPath: `knizhnik-${new Date().toISOString().slice(0, 10)}.csv`,
+        filters: [{ name: "CSV", extensions: ["csv"] }],
+      });
+      if (!path) return; // пользователь закрыл диалог
+      await api.exportCsvTo(path);
+      note.ok(`Сохранено: ${path}`);
+    } catch (e) {
+      note.fail(`Не удалось сохранить: ${String(e)}`);
+    }
   };
 
+  if (error) return <p className="error-note">{error}</p>;
   if (!stats) return <p className="muted">Загрузка…</p>;
 
   return (
@@ -49,6 +60,8 @@ export function StatsView() {
         <button className="btn" onClick={exportCsv}><Icon name="download" size={16} /> Экспорт в CSV</button>
       </div>
 
+      <Note note={note.note} style={{ marginBottom: 14 }} />
+
       <div className="stat-grid">
         <div className="stat">
           <div className="stat__num">{stats.total}</div>
@@ -58,7 +71,20 @@ export function StatsView() {
           <div className="stat__num">{stats.pages_read.toLocaleString("ru-RU")}</div>
           <div className="stat__lbl">страниц прочитано</div>
         </div>
+        <div className="stat" style={{ animationDelay: "140ms" }}>
+          <div className="stat__num">{stats.lent_out}</div>
+          <div className="stat__lbl">на руках</div>
+        </div>
+        <div className="stat" style={{ animationDelay: "210ms" }}>
+          <div className="stat__num" style={{ color: stats.overdue > 0 ? "var(--rust)" : undefined }}>
+            {stats.overdue}
+          </div>
+          <div className="stat__lbl">просрочено</div>
+        </div>
       </div>
+
+      <div className="section-label">прочитано по годам</div>
+      <Bars data={stats.by_year} />
 
       <div className="section-label">по статусам</div>
       <Bars data={stats.by_status.map(([k, n]) => [statusRu[k] ?? k, n])} />

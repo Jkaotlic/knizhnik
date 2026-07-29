@@ -3,11 +3,24 @@ import { api, Book, BookInput, Candidate, Location } from "../api";
 import { Icon } from "./Icon";
 import { useDialog } from "./Dialog";
 
-export function BookEditor({ book, onDone }: { book: Book; onDone: () => void }) {
+export function BookEditor({
+  book,
+  onDone,
+  onSaved,
+}: {
+  book: Book;
+  onDone: () => void;
+  /** Обновлённая книга — чтобы вызывающий экран мог освежить свою карточку. */
+  onSaved?: (updated: Book) => void;
+}) {
   const dlg = useDialog();
   const [shelves, setShelves] = useState<Location[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   useEffect(() => {
-    api.locationsAll().then((locs) => setShelves(locs.filter((l) => l.kind === "shelf")));
+    api.locationsAll()
+      .then((locs) => setShelves(locs.filter((l) => l.kind === "shelf")))
+      .catch((e) => setError(String(e)));
   }, []);
 
   const [form, setForm] = useState<BookInput>({
@@ -25,7 +38,12 @@ export function BookEditor({ book, onDone }: { book: Book; onDone: () => void })
     status: book.status ?? undefined,
     rating: book.rating ?? undefined,
     notes: book.notes ?? undefined,
+    started_at: book.started_at ?? undefined,
+    finished_at: book.finished_at ?? undefined,
   });
+
+  // Ставим «дочитал = сегодня» одним кликом, когда статус меняют на «прочитано».
+  const today = () => new Date().toISOString().slice(0, 10);
 
   const set = <K extends keyof BookInput>(k: K, v: BookInput[K] | "") =>
     setForm((f) => ({ ...f, [k]: v === "" ? undefined : v }));
@@ -44,20 +62,37 @@ export function BookEditor({ book, onDone }: { book: Book; onDone: () => void })
 
   const lookup = async () => {
     if (!form.isbn) return;
+    setBusy(true);
     try {
       const cands = await api.metadataLookupIsbn(form.isbn);
       if (cands[0]) applyCandidate(cands[0]);
       else dlg.alert("Метаданные не найдены");
     } catch (e) {
       dlg.alert(String(e));
+    } finally {
+      setBusy(false);
     }
   };
 
-  const save = async () => { await api.bookUpdate(book.id, form); onDone(); };
+  const save = async () => {
+    if (!form.title.trim()) { setError("У книги должно быть название."); return; }
+    setError(null);
+    try {
+      const updated = await api.bookUpdate(book.id, form);
+      onSaved?.(updated);
+      onDone();
+    } catch (e) {
+      setError(String(e)); // раньше правка молча не сохранялась
+    }
+  };
+
   const remove = async () => {
-    if (await dlg.confirm("Удалить книгу?", { danger: true, okLabel: "Удалить" })) {
+    if (!(await dlg.confirm("Удалить книгу?", { danger: true, okLabel: "Удалить" }))) return;
+    try {
       await api.bookDelete(book.id);
       onDone();
+    } catch (e) {
+      setError(String(e));
     }
   };
 
@@ -84,7 +119,9 @@ export function BookEditor({ book, onDone }: { book: Book; onDone: () => void })
       <div className="field">
         <span className="label">ISBN</span>
         <input className="input mono" value={form.isbn ?? ""} onChange={(e) => set("isbn", e.target.value)} />
-        <button className="btn btn--brass btn--sm" onClick={lookup}><Icon name="globe" size={15} /> Подтянуть</button>
+        <button className="btn btn--brass btn--sm" onClick={lookup} disabled={busy || !form.isbn}>
+          <Icon name="globe" size={15} /> {busy ? "Ищу…" : "Подтянуть"}
+        </button>
       </div>
       {field("Год", "year", "number")}
       {field("Издатель", "publisher")}
@@ -109,7 +146,16 @@ export function BookEditor({ book, onDone }: { book: Book; onDone: () => void })
         <select
           className="select"
           value={form.status ?? ""}
-          onChange={(e) => set("status", (e.target.value || undefined) as BookInput["status"])}
+          onChange={(e) => {
+            const next = (e.target.value || undefined) as BookInput["status"];
+            setForm((f) => ({
+              ...f,
+              status: next,
+              // проставляем дату сами, но не затираем уже введённую
+              started_at: next === "reading" && !f.started_at ? today() : f.started_at,
+              finished_at: next === "read" && !f.finished_at ? today() : f.finished_at,
+            }));
+          }}
         >
           <option value="">не указан</option>
           <option value="want">хочу прочитать</option>
@@ -117,8 +163,40 @@ export function BookEditor({ book, onDone }: { book: Book; onDone: () => void })
           <option value="read">прочитано</option>
         </select>
       </div>
-      {field("Оценка (0–5)", "rating", "number")}
+      <div className="field">
+        <span className="label">Начал читать</span>
+        <input
+          className="input"
+          type="date"
+          value={form.started_at ?? ""}
+          onChange={(e) => set("started_at", e.target.value)}
+        />
+      </div>
+      <div className="field">
+        <span className="label">Дочитал</span>
+        <input
+          className="input"
+          type="date"
+          value={form.finished_at ?? ""}
+          onChange={(e) => set("finished_at", e.target.value)}
+        />
+      </div>
+      <div className="field">
+        <span className="label">Оценка (0–5)</span>
+        <input
+          className="input"
+          type="number"
+          min={0}
+          max={5}
+          value={form.rating ?? ""}
+          onChange={(e) => {
+            const v = e.target.value;
+            set("rating", v === "" ? "" : Math.min(5, Math.max(0, Number(v))));
+          }}
+        />
+      </div>
       {field("Заметки", "notes")}
+      {error && <p className="error-note" style={{ marginTop: 10 }}>{error}</p>}
       <div className="btn-row" style={{ marginTop: 14 }}>
         <button className="btn btn--primary" onClick={save}><Icon name="check" size={16} /> Сохранить</button>
         <button className="btn btn--ghost" onClick={onDone}>Отмена</button>

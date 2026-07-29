@@ -31,6 +31,20 @@ pub struct Book {
     pub lent_to: Option<String>,
     pub added_at: String,
     pub updated_at: String,
+    // `default` обязателен: копии, сделанные до появления этих полей, иначе
+    // перестали бы читаться с «missing field».
+    #[serde(default)]
+    pub started_at: Option<String>, // ISO-дата: начал читать
+    #[serde(default)]
+    pub finished_at: Option<String>, // ISO-дата: дочитал
+    #[serde(default)]
+    pub lent_at: Option<String>, // когда отдал
+    #[serde(default)]
+    pub due_at: Option<String>, // когда ждём назад
+    /// Локальный файл обложки. В резервную копию не едет — путь имеет смысл
+    /// только на этой машине.
+    #[serde(default, skip_serializing)]
+    pub cover_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -49,6 +63,10 @@ pub struct BookInput {
     pub status: Option<String>,
     pub rating: Option<i64>,
     pub notes: Option<String>,
+    #[serde(default)]
+    pub started_at: Option<String>,
+    #[serde(default)]
+    pub finished_at: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -57,4 +75,7 @@ pub struct Stats {
     pub by_status: Vec<(String, i64)>, // ("read", 12), ("не указан", 5)...
     pub pages_read: i64,
     pub top_genres: Vec<(String, i64)>,
+    pub by_year: Vec<(String, i64)>,   // ("2026", 12) — по дате «дочитал»
+    pub lent_out: i64,
+    pub overdue: i64,                  // выдано и срок возврата прошёл
 }

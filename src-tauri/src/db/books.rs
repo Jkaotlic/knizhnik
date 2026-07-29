@@ -15,16 +15,54 @@ fn now() -> String {
     chrono::Utc::now().to_rfc3339()
 }
 
+fn clean_title(title: &str) -> Result<&str, AppError> {
+    let t = title.trim();
+    if t.is_empty() {
+        return Err(AppError::Rule("У книги должно быть название".into()));
+    }
+    Ok(t)
+}
+
+/// Приводим ISBN к той же форме, в которой его пишет сканирование (ISBN-13),
+/// иначе «978-5-…», введённый руками, не совпадёт с отсканированным дублем.
+/// Невалидный ISBN не выбрасываем — сохраняем как есть, вдруг это внутренний код.
+fn clean_isbn(raw: Option<&str>) -> Option<String> {
+    let s = raw?.trim();
+    if s.is_empty() {
+        return None;
+    }
+    Some(crate::domain::isbn::normalize_and_validate(s).unwrap_or_else(|_| s.to_string()))
+}
+
+fn clean_rating(rating: Option<i64>) -> Option<i64> {
+    rating.map(|v| v.clamp(0, 5))
+}
+
+/// Даты храним строго как ГГГГ-ММ-ДД, иначе сортировка и группировка по годам
+/// в статистике начнут врать на первом же «12.03.2026».
+fn clean_date(raw: Option<&str>) -> Result<Option<String>, AppError> {
+    let s = match raw.map(str::trim) {
+        None | Some("") => return Ok(None),
+        Some(s) => s,
+    };
+    chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
+        .map_err(|_| AppError::Rule(format!("Дата «{s}» не в формате ГГГГ-ММ-ДД")))?;
+    Ok(Some(s.to_string()))
+}
+
 pub fn insert(conn: &Connection, i: &BookInput) -> Result<Book, AppError> {
     let ts = now();
     conn.execute(
         "INSERT INTO books \
          (title, authors, isbn, year, publisher, pages, language, genre, annotation, \
-          cover_url, shelf_id, status, rating, notes, availability, lent_to, added_at, updated_at) \
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,'on_shelf',NULL,?15,?15)",
+          cover_url, shelf_id, status, rating, notes, availability, lent_to, added_at, \
+          updated_at, started_at, finished_at) \
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,'on_shelf',NULL,?15,?15,?16,?17)",
         params![
-            i.title, i.authors, i.isbn, i.year, i.publisher, i.pages, i.language,
-            i.genre, i.annotation, i.cover_url, i.shelf_id, i.status, i.rating, i.notes, ts
+            clean_title(&i.title)?, i.authors, clean_isbn(i.isbn.as_deref()), i.year,
+            i.publisher, i.pages, i.language, i.genre, i.annotation, i.cover_url,
+            i.shelf_id, i.status, clean_rating(i.rating), i.notes, ts,
+            clean_date(i.started_at.as_deref())?, clean_date(i.finished_at.as_deref())?
         ],
     )?;
     get(conn, conn.last_insert_rowid())
@@ -34,10 +72,12 @@ pub fn update(conn: &Connection, id: i64, i: &BookInput) -> Result<Book, AppErro
     conn.execute(
         "UPDATE books SET title=?2, authors=?3, isbn=?4, year=?5, publisher=?6, pages=?7, \
          language=?8, genre=?9, annotation=?10, cover_url=?11, shelf_id=?12, status=?13, \
-         rating=?14, notes=?15, updated_at=?16 WHERE id=?1",
+         rating=?14, notes=?15, updated_at=?16, started_at=?17, finished_at=?18 WHERE id=?1",
         params![
-            id, i.title, i.authors, i.isbn, i.year, i.publisher, i.pages, i.language,
-            i.genre, i.annotation, i.cover_url, i.shelf_id, i.status, i.rating, i.notes, now()
+            id, clean_title(&i.title)?, i.authors, clean_isbn(i.isbn.as_deref()), i.year,
+            i.publisher, i.pages, i.language, i.genre, i.annotation, i.cover_url,
+            i.shelf_id, i.status, clean_rating(i.rating), i.notes, now(),
+            clean_date(i.started_at.as_deref())?, clean_date(i.finished_at.as_deref())?
         ],
     )?;
     get(conn, id)
@@ -48,6 +88,21 @@ pub fn delete(conn: &Connection, id: i64) -> Result<(), AppError> {
     Ok(())
 }
 
+pub fn set_cover_path(conn: &Connection, id: i64, name: Option<&str>) -> Result<(), AppError> {
+    conn.execute("UPDATE books SET cover_path=?1 WHERE id=?2", params![name, id])?;
+    Ok(())
+}
+
+/// Книги с сетевой обложкой, которую мы ещё не забрали к себе.
+pub fn needing_covers(conn: &Connection) -> Result<Vec<(i64, String)>, AppError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, cover_url FROM books \
+         WHERE cover_url IS NOT NULL AND cover_url <> '' AND cover_path IS NULL ORDER BY id",
+    )?;
+    let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+}
+
 pub fn set_shelf(conn: &Connection, id: i64, shelf_id: Option<i64>) -> Result<(), AppError> {
     conn.execute(
         "UPDATE books SET shelf_id=?1, updated_at=?2 WHERE id=?3",
@@ -56,21 +111,41 @@ pub fn set_shelf(conn: &Connection, id: i64, shelf_id: Option<i64>) -> Result<()
     Ok(())
 }
 
+/// Возврат на полку стирает всё, что относилось к выдаче, — иначе в карточке
+/// остаётся «ждём назад до 3 марта» у книги, которая уже стоит на месте.
 pub fn set_availability(
     conn: &Connection,
     id: i64,
     availability: &str,
     lent_to: Option<&str>,
+    due_at: Option<&str>,
 ) -> Result<(), AppError> {
+    if !matches!(availability, "on_shelf" | "lent" | "away") {
+        return Err(AppError::Rule(format!("Неизвестный статус наличия: {availability}")));
+    }
+    let ts = now();
+    if availability == "on_shelf" {
+        conn.execute(
+            "UPDATE books SET availability='on_shelf', lent_to=NULL, lent_at=NULL, \
+             due_at=NULL, updated_at=?1 WHERE id=?2",
+            params![ts, id],
+        )?;
+        return Ok(());
+    }
     conn.execute(
-        "UPDATE books SET availability=?1, lent_to=?2, updated_at=?3 WHERE id=?4",
-        params![availability, lent_to, now(), id],
+        "UPDATE books SET availability=?1, lent_to=?2, due_at=?3, \
+         lent_at=COALESCE(lent_at, ?4), updated_at=?5 WHERE id=?6",
+        params![availability, lent_to, clean_date(due_at)?, today(), ts, id],
     )?;
     Ok(())
 }
 
+fn today() -> String {
+    chrono::Utc::now().format("%Y-%m-%d").to_string()
+}
+
 pub fn get(conn: &Connection, id: i64) -> Result<Book, AppError> {
-    Ok(conn.query_row(SELECT_BOOK_BY_ID, params![id], row_to_book)?)
+    Ok(conn.query_row(&format!("{SELECT_BOOK_COLS} WHERE id = ?1"), params![id], row_to_book)?)
 }
 
 pub fn all(conn: &Connection) -> Result<Vec<Book>, AppError> {
@@ -85,13 +160,31 @@ pub fn on_shelf(conn: &Connection, shelf_id: i64) -> Result<Vec<Book>, AppError>
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
 }
 
-pub fn exists_isbn_on_shelf(conn: &Connection, isbn: &str, shelf_id: i64) -> Result<bool, AppError> {
-    let n: i64 = conn.query_row(
-        "SELECT count(*) FROM books WHERE isbn=?1 AND shelf_id=?2",
-        params![isbn, shelf_id],
-        |r| r.get(0),
-    )?;
-    Ok(n > 0)
+/// Книги, которым не указали полку. Без такого списка они пропадали из виду
+/// совсем: на полках их нет, а в поиске находятся, только если помнишь название.
+pub fn without_shelf(conn: &Connection) -> Result<Vec<Book>, AppError> {
+    let mut stmt =
+        conn.prepare(&format!("{SELECT_BOOK_COLS} WHERE shelf_id IS NULL ORDER BY added_at DESC"))?;
+    let rows = stmt.query_map([], row_to_book)?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+}
+
+/// Дубли ищем по всему каталогу, а не только на текущей полке: человеку важно
+/// «эта книга у меня уже есть, вон там», а не «на этой полке её нет».
+/// Возвращает путь к каждому уже имеющемуся экземпляру.
+pub fn find_isbn_duplicates(conn: &Connection, isbn: &str) -> Result<Vec<String>, AppError> {
+    let mut stmt = conn.prepare("SELECT shelf_id FROM books WHERE isbn = ?1 ORDER BY id")?;
+    let shelves = stmt
+        .query_map(params![isbn], |r| r.get::<_, Option<i64>>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut out = Vec::with_capacity(shelves.len());
+    for shelf in shelves {
+        out.push(match shelf {
+            Some(sid) => breadcrumb(conn, sid)?,
+            None => "без полки".to_string(),
+        });
+    }
+    Ok(out)
 }
 
 // SQLite's built-in `COLLATE NOCASE` only case-folds ASCII (A-Z), so plain
@@ -112,16 +205,36 @@ fn register_unicode_lower(conn: &Connection) -> Result<(), AppError> {
     Ok(())
 }
 
+/// `%` и `_` в запросе — обычные символы, а не подстановочные знаки LIKE.
+/// Без этого поиск по «100%» или «_» возвращал весь каталог.
+fn like_pattern(query: &str) -> String {
+    let escaped = query
+        .to_lowercase()
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    format!("%{escaped}%")
+}
+
 pub fn search(conn: &Connection, query: &str) -> Result<Vec<BookHit>, AppError> {
+    if query.trim().is_empty() {
+        return Ok(Vec::new());
+    }
     register_unicode_lower(conn)?;
-    let like = format!("%{}%", query.to_lowercase());
+    let query = query.trim();
+    let like = like_pattern(query);
+    // В базе ISBN лежит нормализованным, а вводят его с дефисами — сравниваем
+    // отдельно по одним цифрам, иначе «978-5-17-118366-0» ничего не находит.
+    let digits: String = query.chars().filter(char::is_ascii_digit).collect();
+    let isbn_like = if digits.is_empty() { like.clone() } else { format!("%{digits}%") };
     let mut stmt = conn.prepare(&format!(
         "{SELECT_BOOK_COLS} WHERE \
-         lower_uc(title) LIKE ?1 OR lower_uc(authors) LIKE ?1 OR \
-         lower_uc(isbn) LIKE ?1 OR lower_uc(genre) LIKE ?1 ORDER BY title"
+         lower_uc(title) LIKE ?1 ESCAPE '\\' OR lower_uc(authors) LIKE ?1 ESCAPE '\\' OR \
+         lower_uc(genre) LIKE ?1 ESCAPE '\\' OR isbn LIKE ?2 ESCAPE '\\' \
+         ORDER BY title"
     ))?;
     let books = stmt
-        .query_map(params![like], row_to_book)?
+        .query_map(params![like, isbn_like], row_to_book)?
         .collect::<Result<Vec<_>, _>>()?;
     let mut hits = Vec::with_capacity(books.len());
     for b in books {
@@ -155,16 +268,29 @@ pub fn stats(conn: &Connection) -> Result<Stats, AppError> {
     let top_genres = stmt2
         .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(Stats { total, by_status, pages_read, top_genres })
+    // Даты лежат как ГГГГ-ММ-ДД, поэтому год — это просто первые четыре символа.
+    let mut stmt3 = conn.prepare(
+        "SELECT substr(finished_at, 1, 4) AS y, count(*) FROM books \
+         WHERE finished_at IS NOT NULL AND finished_at <> '' GROUP BY y ORDER BY y DESC LIMIT 10",
+    )?;
+    let by_year = stmt3
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+    let lent_out: i64 =
+        conn.query_row("SELECT count(*) FROM books WHERE availability='lent'", [], |r| r.get(0))?;
+    let overdue: i64 = conn.query_row(
+        "SELECT count(*) FROM books WHERE availability='lent' \
+         AND due_at IS NOT NULL AND due_at <> '' AND due_at < ?1",
+        params![today()],
+        |r| r.get(0),
+    )?;
+    Ok(Stats { total, by_status, pages_read, top_genres, by_year, lent_out, overdue })
 }
 
 const SELECT_BOOK_COLS: &str = "SELECT id, title, authors, isbn, year, publisher, pages, \
     language, genre, annotation, cover_url, shelf_id, status, rating, notes, availability, \
-    lent_to, added_at, updated_at FROM books";
-
-const SELECT_BOOK_BY_ID: &str = "SELECT id, title, authors, isbn, year, publisher, pages, \
-    language, genre, annotation, cover_url, shelf_id, status, rating, notes, availability, \
-    lent_to, added_at, updated_at FROM books WHERE id = ?1";
+    lent_to, added_at, updated_at, started_at, finished_at, lent_at, due_at, cover_path \
+    FROM books";
 
 fn row_to_book(r: &rusqlite::Row) -> rusqlite::Result<Book> {
     Ok(Book {
@@ -187,6 +313,11 @@ fn row_to_book(r: &rusqlite::Row) -> rusqlite::Result<Book> {
         lent_to: r.get(16)?,
         added_at: r.get(17)?,
         updated_at: r.get(18)?,
+        started_at: r.get(19)?,
+        finished_at: r.get(20)?,
+        lent_at: r.get(21)?,
+        due_at: r.get(22)?,
+        cover_path: r.get(23)?,
     })
 }
 
@@ -243,7 +374,7 @@ mod tests {
         book_on(&conn, s, "Дюна", "Фрэнк Герберт");
         let hits = search(&conn, "гербе").unwrap();
         assert_eq!(hits.len(), 1);
-        assert_eq!(hits[0].breadcrumb, "Гостиная › Шкаф A › Полка");
+        assert_eq!(hits[0].breadcrumb, "Шкаф A › Полка");
         assert!(!hits[0].off_shelf);
     }
 
@@ -252,7 +383,7 @@ mod tests {
         let conn = open_in_memory().unwrap();
         let s = shelf(&conn);
         let b = book_on(&conn, s, "Дюна", "Герберт");
-        set_availability(&conn, b.id, "lent", Some("Маша")).unwrap();
+        set_availability(&conn, b.id, "lent", Some("Маша"), None).unwrap();
         let hits = search(&conn, "дюна").unwrap();
         assert!(hits[0].off_shelf);
         assert_eq!(hits[0].book.lent_to, Some("Маша".into()));
@@ -267,8 +398,126 @@ mod tests {
         i.isbn = Some("9785171183660".into());
         i.shelf_id = Some(s);
         insert(&conn, &i).unwrap();
-        assert!(exists_isbn_on_shelf(&conn, "9785171183660", s).unwrap());
-        assert!(!exists_isbn_on_shelf(&conn, "9780000000000", s).unwrap());
+        assert_eq!(find_isbn_duplicates(&conn, "9785171183660").unwrap(), vec!["Шкаф A › Полка"]);
+        assert!(find_isbn_duplicates(&conn, "9780000000000").unwrap().is_empty());
+    }
+
+    #[test]
+    fn duplicates_are_found_across_the_whole_catalogue() {
+        let conn = open_in_memory().unwrap();
+        let a = shelf(&conn);
+        let root = locations::create(&conn, None, "Дача", "root", None).unwrap().id;
+        let b = locations::create(&conn, Some(root), "Веранда", "shelf", None).unwrap().id;
+        for shelf_id in [a, b] {
+            let mut i = BookInput::default();
+            i.title = "Будущее".into();
+            i.isbn = Some("9785171183660".into());
+            i.shelf_id = Some(shelf_id);
+            insert(&conn, &i).unwrap();
+        }
+        // прежняя проверка смотрела только одну полку и второй экземпляр не видела
+        let places = find_isbn_duplicates(&conn, "9785171183660").unwrap();
+        assert_eq!(places, vec!["Шкаф A › Полка".to_string(), "Веранда".to_string()]);
+    }
+
+    #[test]
+    fn duplicate_without_a_shelf_is_still_reported() {
+        let conn = open_in_memory().unwrap();
+        let mut i = BookInput::default();
+        i.title = "Будущее".into();
+        i.isbn = Some("9785171183660".into());
+        insert(&conn, &i).unwrap();
+        assert_eq!(find_isbn_duplicates(&conn, "9785171183660").unwrap(), vec!["без полки"]);
+    }
+
+    #[test]
+    fn unshelved_books_are_listed_newest_first() {
+        let conn = open_in_memory().unwrap();
+        let s = shelf(&conn);
+        book_on(&conn, s, "На полке", "Автор");
+
+        let mut i = BookInput::default();
+        i.title = "Забыл полку".into();
+        insert(&conn, &i).unwrap();
+        i.title = "Тоже забыл".into();
+        insert(&conn, &i).unwrap();
+
+        let out = without_shelf(&conn).unwrap();
+        assert_eq!(out.len(), 2, "книги с полкой сюда попадать не должны");
+        // свежие сверху — так их проще подобрать сразу после добавления
+        assert_eq!(out[0].title, "Тоже забыл");
+        assert!(out.iter().all(|b| b.shelf_id.is_none()));
+    }
+
+    #[test]
+    fn assigning_a_shelf_removes_a_book_from_the_unshelved_list() {
+        let conn = open_in_memory().unwrap();
+        let s = shelf(&conn);
+        let mut i = BookInput::default();
+        i.title = "Забыл полку".into();
+        let b = insert(&conn, &i).unwrap();
+        assert_eq!(without_shelf(&conn).unwrap().len(), 1);
+
+        set_shelf(&conn, b.id, Some(s)).unwrap();
+        assert!(without_shelf(&conn).unwrap().is_empty());
+        assert_eq!(on_shelf(&conn, s).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn like_wildcards_in_query_are_literal() {
+        let conn = open_in_memory().unwrap();
+        let s = shelf(&conn);
+        book_on(&conn, s, "Дюна", "Герберт");
+        book_on(&conn, s, "Скидка 100% на всё", "Автор");
+        // «%» раньше означал «что угодно» и вытаскивал весь каталог
+        let hits = search(&conn, "100%").unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].book.title, "Скидка 100% на всё");
+        assert!(search(&conn, "_").unwrap().is_empty());
+    }
+
+    #[test]
+    fn isbn_is_normalised_so_manual_entry_matches_scan() {
+        let conn = open_in_memory().unwrap();
+        let s = shelf(&conn);
+        let mut i = BookInput::default();
+        i.title = "Дюна".into();
+        i.isbn = Some("978-5-17-118366-0".into()); // как вводят руками
+        i.shelf_id = Some(s);
+        let b = insert(&conn, &i).unwrap();
+        assert_eq!(b.isbn.as_deref(), Some("9785171183660"));
+        assert_eq!(find_isbn_duplicates(&conn, "9785171183660").unwrap(), vec!["Шкаф A › Полка"]);
+    }
+
+    #[test]
+    fn isbn_search_ignores_hyphens() {
+        let conn = open_in_memory().unwrap();
+        let s = shelf(&conn);
+        let mut i = BookInput::default();
+        i.title = "Дюна".into();
+        i.isbn = Some("9785171183660".into());
+        i.shelf_id = Some(s);
+        insert(&conn, &i).unwrap();
+        assert_eq!(search(&conn, "978-5-17-118366-0").unwrap().len(), 1);
+        assert_eq!(search(&conn, "9785171183660").unwrap().len(), 1);
+        assert_eq!(search(&conn, "978517").unwrap().len(), 1); // частичный ввод
+    }
+
+    #[test]
+    fn rating_is_clamped_and_blank_title_rejected() {
+        let conn = open_in_memory().unwrap();
+        let s = shelf(&conn);
+        let mut i = BookInput::default();
+        i.title = "Дюна".into();
+        i.rating = Some(99);
+        i.shelf_id = Some(s);
+        assert_eq!(insert(&conn, &i).unwrap().rating, Some(5));
+        i.rating = Some(-3);
+        assert_eq!(insert(&conn, &i).unwrap().rating, Some(0));
+
+        let mut blank = BookInput::default();
+        blank.title = "   ".into();
+        assert!(insert(&conn, &blank).is_err());
     }
 
     #[test]
@@ -289,3 +538,4 @@ mod tests {
         assert!(st.top_genres.iter().any(|(g, n)| g == "Фантастика" && *n == 1));
     }
 }
+

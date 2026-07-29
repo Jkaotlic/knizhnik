@@ -82,21 +82,37 @@ impl GoogleBooks {
     }
 
     async fn fetch(&self, q: &str) -> Result<Vec<MetadataCandidate>, AppError> {
-        let mut url = format!("https://www.googleapis.com/books/v1/volumes?q={q}&maxResults=5&country=RU");
+        // Параметры уходят через `query`: раньше название склеивалось в URL как
+        // есть, и любой `&` или `#` в запросе ломал его.
+        let mut params: Vec<(&str, &str)> =
+            vec![("q", q), ("maxResults", "5"), ("country", "RU")];
         // ключ (если задан в настройках) снимает анонимный лимит 429 и расширяет покрытие
-        let key = self.api_key.read().unwrap().clone();
-        if let Some(k) = key.filter(|s| !s.is_empty()) {
-            url.push_str(&format!("&key={k}"));
+        let key = self
+            .api_key
+            .read()
+            .map_err(|_| AppError::Rule("Не прочитать API-ключ".into()))?
+            .clone()
+            .filter(|s| !s.is_empty());
+        if let Some(k) = key.as_deref() {
+            params.push(("key", k));
         }
-        let body = self
+        let resp = self
             .client
-            .get(&url)
+            .get("https://www.googleapis.com/books/v1/volumes")
+            .query(&params)
             .send()
             .await
-            .map_err(|e| AppError::Network(e.to_string()))?
-            .text()
-            .await
             .map_err(|e| AppError::Network(e.to_string()))?;
+        let status = resp.status();
+        if status.as_u16() == 429 {
+            return Err(AppError::Network(
+                "Google Books: превышен лимит запросов. Добавь свой API-ключ в Настройках".into(),
+            ));
+        }
+        if !status.is_success() {
+            return Err(AppError::Network(format!("Google Books ответил {status}")));
+        }
+        let body = resp.text().await.map_err(|e| AppError::Network(e.to_string()))?;
         Ok(parse_volumes_response(&body))
     }
 }
@@ -107,7 +123,7 @@ impl MetadataProvider for GoogleBooks {
         self.fetch(&format!("isbn:{isbn}")).await
     }
     async fn lookup_title(&self, title: &str) -> Result<Vec<MetadataCandidate>, AppError> {
-        self.fetch(&title.replace(' ', "+")).await
+        self.fetch(title).await
     }
     fn name(&self) -> &'static str {
         "google"

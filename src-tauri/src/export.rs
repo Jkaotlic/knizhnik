@@ -1,40 +1,58 @@
 use crate::error::AppError;
 use rusqlite::Connection;
 
+const COLS: usize = 15;
+
+/// Excel на macOS и Windows читает CSV без BOM как cp1251 — кириллица
+/// превращается в кракозябры. BOM это лечит.
+const BOM: &str = "\u{feff}";
+
 pub fn export_csv(conn: &Connection) -> Result<String, AppError> {
     let header = "id;title;authors;isbn;year;publisher;pages;language;genre;\
-                  status;rating;availability;lent_to;shelf_id;added_at";
-    let mut out = String::from(header);
+                  status;rating;availability;lent_to;shelf_id;added_at;shelf";
+    let mut out = String::from(BOM);
+    out.push_str(header);
     out.push('\n');
+
     let mut stmt = conn.prepare(
         "SELECT id, title, authors, isbn, year, publisher, pages, language, genre, \
          status, rating, availability, lent_to, shelf_id, added_at FROM books ORDER BY id",
     )?;
-    let rows = stmt.query_map([], |r| {
-        let cell = |v: rusqlite::types::Value| -> String {
-            match v {
-                rusqlite::types::Value::Null => String::new(),
-                rusqlite::types::Value::Integer(n) => n.to_string(),
-                rusqlite::types::Value::Real(f) => f.to_string(),
-                rusqlite::types::Value::Text(s) => s,
-                rusqlite::types::Value::Blob(_) => String::new(),
+    let rows = stmt
+        .query_map([], |r| {
+            let mut fields = Vec::with_capacity(COLS + 1);
+            for idx in 0..COLS {
+                fields.push(escape(&cell(r.get::<_, rusqlite::types::Value>(idx)?)));
             }
+            Ok((r.get::<_, Option<i64>>(13)?, fields))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    // Голый shelf_id человеку ничего не говорит — дописываем путь к полке.
+    for (shelf_id, mut fields) in rows {
+        let crumb = match shelf_id {
+            Some(sid) => crate::db::locations::breadcrumb(conn, sid)?,
+            None => String::new(),
         };
-        let mut fields = Vec::with_capacity(15);
-        for idx in 0..15 {
-            fields.push(escape(&cell(r.get::<_, rusqlite::types::Value>(idx)?)));
-        }
-        Ok(fields.join(";"))
-    })?;
-    for line in rows {
-        out.push_str(&line?);
+        fields.push(escape(&crumb));
+        out.push_str(&fields.join(";"));
         out.push('\n');
     }
     Ok(out)
 }
 
+fn cell(v: rusqlite::types::Value) -> String {
+    match v {
+        rusqlite::types::Value::Null => String::new(),
+        rusqlite::types::Value::Integer(n) => n.to_string(),
+        rusqlite::types::Value::Real(f) => f.to_string(),
+        rusqlite::types::Value::Text(s) => s,
+        rusqlite::types::Value::Blob(_) => String::new(),
+    }
+}
+
 fn escape(field: &str) -> String {
-    if field.contains(';') || field.contains('"') || field.contains('\n') {
+    if field.contains([';', '"', '\n', '\r']) {
         format!("\"{}\"", field.replace('"', "\"\""))
     } else {
         field.to_string()
@@ -59,11 +77,14 @@ mod tests {
         books::insert(&conn, &i).unwrap();
 
         let csv = export_csv(&conn).unwrap();
+        assert!(csv.starts_with(BOM), "без BOM Excel ломает кириллицу");
         let lines: Vec<&str> = csv.lines().collect();
         assert_eq!(lines.len(), 2); // заголовок + 1 книга
-        assert!(lines[0].starts_with("id;title;authors;isbn"));
+        assert!(lines[0].starts_with("\u{feff}id;title;authors;isbn"));
+        assert!(lines[0].ends_with(";shelf"));
         assert!(lines[1].contains("\"Дюна; часть 1\"")); // поле экранировано
         assert!(lines[1].contains("9785171183660"));
+        assert!(lines[1].ends_with(";Полка"), "должен быть путь к полке: {}", lines[1]);
     }
 
     #[test]

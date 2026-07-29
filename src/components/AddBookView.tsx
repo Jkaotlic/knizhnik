@@ -1,21 +1,25 @@
-import { useEffect, useState } from "react";
-import { api, BookInput, Candidate, Location } from "../api";
+import { useState } from "react";
+import { api, BookInput, Candidate } from "../api";
 import { Icon } from "./Icon";
+import { ShelfSelect } from "./ShelfSelect";
+import { sourceLabel } from "../theme";
+import { Note, useNote } from "./Note";
 
 const empty: BookInput = { title: "" };
 
-export function AddBookView({ onOpenShelf }: { onOpenShelf: (id: number) => void }) {
-  const [shelves, setShelves] = useState<Location[]>([]);
+export function AddBookView({
+  onOpenShelf,
+  onShelfUsed,
+}: {
+  onOpenShelf: (id: number) => void;
+  onShelfUsed: (id: number) => void;
+}) {
   const [form, setForm] = useState<BookInput>(empty);
 
   const [q, setQ] = useState("");
   const [candidates, setCandidates] = useState<Candidate[] | null>(null);
   const [busy, setBusy] = useState(false);
-  const [note, setNote] = useState<string | null>(null);
-
-  useEffect(() => {
-    api.locationsAll().then((ls) => setShelves(ls.filter((l) => l.kind === "shelf")));
-  }, []);
+  const note = useNote();
 
   const set = <K extends keyof BookInput>(k: K, v: BookInput[K] | "") =>
     setForm((f) => ({ ...f, [k]: v === "" ? undefined : v }));
@@ -26,14 +30,14 @@ export function AddBookView({ onOpenShelf }: { onOpenShelf: (id: number) => void
   const lookup = async () => {
     if (q.trim().length < 2) return;
     setBusy(true);
-    setNote(null);
+    note.clear();
     try {
       const cands = byIsbn ? await api.metadataLookupIsbn(q.trim()) : await api.metadataLookupTitle(q.trim());
       setCandidates(cands);
-      if (cands.length === 0) setNote("Ничего не нашлось в Open Library и Google.");
+      if (cands.length === 0) note.ok("Ничего не нашлось в Open Library и Google.");
     } catch (e) {
       setCandidates([]);
-      setNote(String(e));
+      note.fail(String(e));
     } finally {
       setBusy(false);
     }
@@ -52,16 +56,46 @@ export function AddBookView({ onOpenShelf }: { onOpenShelf: (id: number) => void
       cover_url: c.cover_url ?? f.cover_url,
     }));
     setCandidates(null);
-    setNote(`Поля заполнены из «${c.title}». Проверь, выбери полку и добавь.`);
+
+    // Перечисляем, что реально приехало: иначе непонятно, то ли источник
+    // беден, то ли кнопка не сработала.
+    const filled = [
+      c.authors && "автор",
+      c.year && "год",
+      c.publisher && "издатель",
+      c.pages && "страницы",
+      c.isbn && "ISBN",
+      c.language && "язык",
+      c.cover_url && "обложка",
+    ].filter(Boolean);
+    note.ok(
+      filled.length > 0
+        ? `Из «${sourceLabel(c.source)}» заполнено: ${filled.join(", ")}. Проверь, выбери полку и добавь.`
+        : `«${c.title}» — кроме названия источник ничего не знает, дозаполни руками.`
+    );
   };
 
   const save = async () => {
-    if (!form.title || !form.title.trim()) { setNote("Впиши хотя бы название."); return; }
-    const book = await api.bookCreate(form);
-    const shelf = shelves.find((s) => s.id === form.shelf_id);
-    setNote(`«${book.title}» добавлена${shelf ? ` на полку ${shelf.name}${shelf.label ? ` · ${shelf.label}` : ""}` : " (без полки)"}.`);
-    setForm(empty);
-    setQ("");
+    if (!form.title || !form.title.trim()) { note.fail("Впиши хотя бы название."); return; }
+    try {
+      const book = await api.bookCreate(form);
+      api.coverCache(book.id).catch(() => {});
+      // Путь спрашиваем у бэкенда: полка могла быть создана только что,
+      // прямо в селекте, и любой локальный список уже устарел.
+      let where = " (без полки)";
+      if (form.shelf_id) {
+        onShelfUsed(form.shelf_id); // теперь вкладка «Полка» ведёт куда надо
+        where = ` на полку ${await api.locationBreadcrumb(form.shelf_id).catch(() => "")}`.trimEnd();
+      }
+      note.ok(`«${book.title}» добавлена${where}.`);
+      // Полку намеренно НЕ сбрасываем: подряд обычно заносят несколько книг
+      // на одну и ту же, да и кнопка «Открыть полку» иначе исчезала сразу
+      // после добавления — ровно когда она и нужна.
+      setForm({ ...empty, shelf_id: form.shelf_id });
+      setQ("");
+    } catch (e) {
+      note.fail(`Не удалось добавить: ${String(e)}`);
+    }
   };
 
   const field = (label: string, key: keyof BookInput, type: "text" | "number" = "text") => (
@@ -115,7 +149,7 @@ export function AddBookView({ onOpenShelf }: { onOpenShelf: (id: number) => void
                 {c.authors && <span className="muted small">{c.authors}</span>}
                 {c.year && <span className="chip mono">{c.year}</span>}
                 {c.publisher && <span className="muted small">{c.publisher}</span>}
-                <span className="chip">{c.source === "openlibrary" ? "Open Library" : c.source === "google" ? "Google Books" : c.source}</span>
+                <span className="chip">{sourceLabel(c.source)}</span>
               </div>
               <div className="candidate__add">
                 <button className="btn btn--primary btn--sm" onClick={() => pick(c)}>
@@ -139,16 +173,11 @@ export function AddBookView({ onOpenShelf }: { onOpenShelf: (id: number) => void
         {field("Жанр", "genre")}
         <div className="field">
           <span className="label">Полка</span>
-          <select
-            className="select"
-            value={form.shelf_id ?? ""}
-            onChange={(e) => set("shelf_id", (e.target.value ? Number(e.target.value) : undefined) as never)}
-          >
-            <option value="">— без полки —</option>
-            {shelves.map((s) => (
-              <option key={s.id} value={s.id}>{s.name}{s.label ? ` · ${s.label}` : ""}</option>
-            ))}
-          </select>
+          <ShelfSelect
+            value={form.shelf_id ?? null}
+            onChange={(id) => set("shelf_id", (id ?? undefined) as never)}
+            allowNone
+          />
         </div>
         <div className="field">
           <span className="label">Статус</span>
@@ -164,14 +193,14 @@ export function AddBookView({ onOpenShelf }: { onOpenShelf: (id: number) => void
           </select>
         </div>
 
-        {note && <p className="small" style={{ color: "var(--green)", marginTop: 8 }}>{note}</p>}
+        <Note note={note.note} style={{ marginTop: 8 }} />
 
         <div className="btn-row" style={{ marginTop: 14 }}>
           <button className="btn btn--primary" onClick={save}><Icon name="plus" size={16} /> Добавить книгу</button>
           {form.shelf_id && (
             <button className="btn btn--ghost" onClick={() => onOpenShelf(form.shelf_id!)}>Открыть полку</button>
           )}
-          <button className="btn btn--ghost" onClick={() => { setForm(empty); setQ(""); setCandidates(null); setNote(null); }} style={{ marginLeft: "auto" }}>
+          <button className="btn btn--ghost" onClick={() => { setForm(empty); setQ(""); setCandidates(null); note.clear(); }} style={{ marginLeft: "auto" }}>
             Очистить
           </button>
         </div>

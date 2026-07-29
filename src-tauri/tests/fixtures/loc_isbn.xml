@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<zs:searchRetrieveResponse xmlns:zs="http://www.loc.gov/zing/srw/"><zs:version>1.1</zs:version><zs:numberOfRecords>1</zs:numberOfRecords><zs:records><zs:record><zs:recordSchema>dc</zs:recordSchema><zs:recordPacking>xml</zs:recordPacking><zs:recordData><srw_dc:dc xmlns:srw_dc="info:srw/schema/1/dc-schema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="info:srw/schema/1/dc-schema http://www.loc.gov/standards/sru/resources/dc-schema.xsd">
+  <title xmlns="http://purl.org/dc/elements/1.1/">Dune /</title>
+  <creator xmlns="http://purl.org/dc/elements/1.1/">Herbert, Frank.</creator>
+  <type xmlns="http://purl.org/dc/elements/1.1/">text</type>
+  <type xmlns="http://purl.org/dc/elements/1.1/">Science fiction. gsafd</type>
+  <type xmlns="http://purl.org/dc/elements/1.1/">Fiction. lcgft https://id.loc.gov/authorities/genreForms/gf2014026339</type>
+  <publisher xmlns="http://purl.org/dc/elements/1.1/">New York : Ace Books,</publisher>
+  <date xmlns="http://purl.org/dc/elements/1.1/">2005, c1965.</date>
+  <language xmlns="http://purl.org/dc/elements/1.1/">eng</language>
+  <description xmlns="http://purl.org/dc/elements/1.1/">"With a new afterword by Brian Herbert"-cover.</description>
+  <subject xmlns="http://purl.org/dc/elements/1.1/">Dune (Imaginary place)--Fiction.</subject>
+  <identifier xmlns="http://purl.org/dc/elements/1.1/">URN:ISBN:0441013597</identifier>
+  <identifier xmlns="http://purl.org/dc/elements/1.1/">URN:ISBN:9780441013593</identifier>
+</srw_dc:dc></zs:recordData><zs:recordPosition>1</zs:recordPosition></zs:record></zs:records><zs:echoedSearchRetrieveRequest><zs:version>1.1</zs:version><zs:query>bath.isbn=9780441013593</zs:query><zs:maximumRecords>1</zs:maximumRecords><zs:recordPacking>xml</zs:recordPacking><zs:recordSchema>dc</zs:recordSchema></zs:echoedSearchRetrieveRequest></zs:searchRetrieveResponse>

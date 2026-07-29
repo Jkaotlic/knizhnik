@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<searchRetrieveResponse xmlns="http://www.loc.gov/zing/srw/"><version>1.1</version><numberOfRecords>1</numberOfRecords><records><record><recordSchema>oai_dc</recordSchema><recordPacking>xml</recordPacking><recordData><dc xmlns:dnb="http://d-nb.de/standards/dnbterms" xmlns="http://www.openarchives.org/OAI/2.0/oai_dc/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <dc:title>[Aurora] ; Aurora : Roman / Kim Stanley Robinson ; aus dem Amerikanischen übersetzt von Jakob Schmidt</dc:title>
+  <dc:creator>Robinson, Kim Stanley [Verfasser]</dc:creator>
+  <dc:creator>Schmidt, Jakob [Übersetzer]</dc:creator>
+  <dc:publisher>München : Wilhelm Heyne Verlag</dc:publisher>
+  <dc:date>2016</dc:date>
+  <dc:language>ger</dc:language>
+  <dc:identifier xmlns:tel="http://krait.kb.nl/coop/tel/handbook/telterms.html" xsi:type="tel:ISBN">978-3-453-31724-6 Broschur : EUR 15.50 (AT), sfr 20.50 (freier Preis), EUR 14.99 (DE)</dc:identifier>
+  <dc:identifier xmlns:tel="http://krait.kb.nl/coop/tel/handbook/telterms.html" xsi:type="tel:ISBN">3-453-31724-6</dc:identifier>
+  <dc:identifier xsi:type="dnb:IDN">1098326865</dc:identifier>
+  <dc:subject>810 Englische Literatur Amerikas</dc:subject>
+  <dc:subject>B Belletristik</dc:subject>
+  <dc:format>555 Seiten</dc:format>
+  <dc:relation>http://d-nb.info/1119000025</dc:relation>
+</dc></recordData><recordPosition>1</recordPosition></record></records><echoedSearchRetrieveRequest><version>1.1</version><query>NUM=9783453317246</query><xQuery xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:nil="true"/><maximumRecords>1</maximumRecords><recordSchema>oai_dc</recordSchema></echoedSearchRetrieveRequest></searchRetrieveResponse>

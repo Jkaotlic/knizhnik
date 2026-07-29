@@ -38,3 +38,21 @@ export const kindLabel = {
   bookcase: "Шкаф",
   shelf: "Полка",
 } as const;
+
+// Человеческие названия источников метаданных.
+const SOURCE_LABELS: Record<string, string> = {
+  openlibrary: "Open Library",
+  google: "Google Books",
+  dnb: "Нем. нацбиблиотека",
+  loc: "Library of Congress",
+  wildberries: "Wildberries",
+};
+
+// Данные по одной книге склеиваются из нескольких каталогов, и бэкенд
+// присылает источник как «openlibrary+dnb» — показываем все, а не сырую строку.
+export function sourceLabel(source: string): string {
+  return source
+    .split("+")
+    .map((s) => SOURCE_LABELS[s] ?? s)
+    .join(" + ");
+}

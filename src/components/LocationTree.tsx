@@ -33,27 +33,53 @@ export function LocationTree({ onOpenShelf }: { onOpenShelf: (id: number) => voi
     const kind = childKind[parent.kind];
     if (!kind) return;
     const name = await dlg.prompt(`Название · ${kindLabel[kind]}`);
-    if (!name) return;
+    if (!name || !name.trim()) return;
     const label = kind === "shelf" ? await dlg.prompt("Код полки, напр. A-3 (необязательно)") : null;
-    await api.locationCreate(parent.id, name, kind, label || null);
-    reload();
+    try {
+      await api.locationCreate(parent.id, name.trim(), kind, label || null);
+      reload();
+    } catch (e) { dlg.alert(String(e)); }
   };
 
   const addRoot = async () => {
     const name = await dlg.prompt("Название дома / корня", { placeholder: "напр. Квартира" });
-    if (!name) return;
-    await api.locationCreate(null, name, "root", null);
-    reload();
+    if (!name || !name.trim()) return;
+    try {
+      await api.locationCreate(null, name.trim(), "root", null);
+      reload();
+    } catch (e) { dlg.alert(String(e)); }
   };
 
+  // Удаление сносит всё поддерево — спрашиваем, показывая что именно зацепит.
   const del = async (l: Location) => {
+    let what = `Удалить «${l.name}»?`;
+    try {
+      const info = await api.locationSubtreeInfo(l.id);
+      if (info.books > 0) {
+        dlg.alert(`Внутри «${l.name}» ещё ${info.books} кн. Сначала перенеси или удали книги.`);
+        return;
+      }
+      if (info.locations > 0) {
+        what = `Удалить «${l.name}» и всё внутри (${info.locations} вложенных)?`;
+      }
+    } catch (e) { dlg.alert(String(e)); return; }
+
+    if (!(await dlg.confirm(what, { danger: true, okLabel: "Удалить" }))) return;
     try { await api.locationDelete(l.id); reload(); } catch (e) { dlg.alert(String(e)); }
   };
 
   const rename = async (l: Location) => {
     const newName = await dlg.prompt("Новое название", { defaultValue: l.name });
-    if (!newName || newName === l.name) return;
-    try { await api.locationUpdate(l.id, newName, null); reload(); } catch (e) { dlg.alert(String(e)); }
+    if (newName === null || !newName.trim()) return;
+    if (newName.trim() === l.name) return;
+    try { await api.locationUpdate(l.id, newName.trim(), null); reload(); } catch (e) { dlg.alert(String(e)); }
+  };
+
+  // Код полки раньше можно было задать только при создании — опечатка была навсегда.
+  const editLabel = async (l: Location) => {
+    const next = await dlg.prompt("Код полки (пусто — убрать)", { defaultValue: l.label ?? "" });
+    if (next === null) return;
+    try { await api.locationUpdate(l.id, null, next); reload(); } catch (e) { dlg.alert(String(e)); }
   };
 
   const moveCandidates = (l: Location) => {
@@ -71,7 +97,9 @@ export function LocationTree({ onOpenShelf }: { onOpenShelf: (id: number) => voi
     try { await api.locationMove(l.id, newParentId); setMovingId(null); reload(); } catch (e) { dlg.alert(String(e)); }
   };
 
-  const node = (l: Location) => (
+  const node = (l: Location) => {
+    const kids = childrenOf(l.id);
+    return (
     <div key={l.id} className="tree__node">
       <div className="tree__row">
         <span className="tree__kind">{kindLabel[l.kind]}</span>
@@ -88,6 +116,9 @@ export function LocationTree({ onOpenShelf }: { onOpenShelf: (id: number) => voi
             </button>
           )}
           <button className="btn btn--ghost btn--sm" onClick={() => rename(l)} title="Переименовать"><Icon name="pencil" size={15} /></button>
+          {l.kind === "shelf" && (
+            <button className="btn btn--ghost btn--sm" onClick={() => editLabel(l)} title="Код полки">A-3</button>
+          )}
           {parentKind[l.kind] && (
             <button className="btn btn--ghost btn--sm" onClick={() => startMove(l)} title="Перенести"><Icon name="move" size={15} /></button>
           )}
@@ -103,9 +134,10 @@ export function LocationTree({ onOpenShelf }: { onOpenShelf: (id: number) => voi
           </select>
         )}
       </div>
-      {childrenOf(l.id).length > 0 && <div className="tree__kids">{childrenOf(l.id).map(node)}</div>}
+      {kids.length > 0 && <div className="tree__kids">{kids.map(node)}</div>}
     </div>
-  );
+    );
+  };
 
   return (
     <div>

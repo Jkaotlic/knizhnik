@@ -1,28 +1,48 @@
-import { useEffect, useState } from "react";
-import { api, BookHit, Candidate, Location } from "../api";
+import { useRef, useState } from "react";
+import { api, BookHit, Candidate } from "../api";
 import { spineColor } from "../theme";
 import { Icon } from "./Icon";
+import { sourceLabel } from "../theme";
+import { Note, useNote } from "./Note";
+import { Cover, useCoversDir } from "./Cover";
+import { ShelfSelect } from "./ShelfSelect";
 
-export function SearchView({ onOpenShelf }: { onOpenShelf: (id: number) => void }) {
+export function SearchView({
+  onOpenShelf,
+  onShelfUsed,
+}: {
+  onOpenShelf: (id: number) => void;
+  onShelfUsed: (id: number) => void;
+}) {
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<BookHit[]>([]);
 
-  const [shelves, setShelves] = useState<Location[]>([]);
   const [target, setTarget] = useState<number | null>(null);
   const [candidates, setCandidates] = useState<Candidate[] | null>(null);
   const [onlineBusy, setOnlineBusy] = useState(false);
-  const [note, setNote] = useState<string | null>(null);
+  const note = useNote();
+  const coversDir = useCoversDir();
 
-  useEffect(() => {
-    api.locationsAll().then((ls) => setShelves(ls.filter((l) => l.kind === "shelf")));
-  }, []);
+  // Запросы летят на каждый символ и возвращаются в произвольном порядке —
+  // без этого счётчика ответ на «дю» мог перезаписать ответ на «дюна».
+  const seq = useRef(0);
+
+  const search = async (value: string) => {
+    const mine = ++seq.current;
+    try {
+      const found = await api.booksSearch(value);
+      if (mine === seq.current) setHits(found);
+    } catch (e) {
+      if (mine === seq.current) { setHits([]); note.fail(String(e)); }
+    }
+  };
 
   const run = async (value: string) => {
     setQ(value);
     setCandidates(null);
-    setNote(null);
-    if (value.trim().length < 2) { setHits([]); return; }
-    setHits(await api.booksSearch(value.trim()));
+    note.clear();
+    if (value.trim().length < 2) { seq.current++; setHits([]); return; }
+    await search(value.trim());
   };
 
   const digits = q.replace(/\D/g, "");
@@ -30,36 +50,43 @@ export function SearchView({ onOpenShelf }: { onOpenShelf: (id: number) => void 
 
   const lookupOnline = async () => {
     setOnlineBusy(true);
-    setNote(null);
+    note.clear();
     try {
       const cands = await api.metadataLookupIsbn(q.trim());
       setCandidates(cands);
-      if (cands.length === 0) setNote("По этому ISBN ничего не нашлось в Open Library и Google.");
+      if (cands.length === 0) note.ok("По этому ISBN ничего не нашлось в Open Library и Google.");
     } catch (e) {
       setCandidates([]);
-      setNote(String(e));
+      note.fail(String(e));
     } finally {
       setOnlineBusy(false);
     }
   };
 
   const add = async (c: Candidate) => {
-    if (!target) { setNote("Выбери полку, куда добавить книгу."); return; }
-    await api.bookCreate({
-      title: c.title,
-      authors: c.authors ?? undefined,
-      isbn: c.isbn ?? digits,
-      year: c.year ?? undefined,
-      publisher: c.publisher ?? undefined,
-      pages: c.pages ?? undefined,
-      language: c.language ?? undefined,
-      cover_url: c.cover_url ?? undefined,
-      shelf_id: target,
-    });
-    const shelf = shelves.find((s) => s.id === target);
-    setNote(`«${c.title}» добавлена на полку ${shelf?.name ?? ""}${shelf?.label ? ` · ${shelf.label}` : ""}.`);
-    setCandidates(null);
-    if (q.trim().length >= 2) setHits(await api.booksSearch(q.trim()));
+    if (!target) { note.fail("Выбери полку, куда добавить книгу."); return; }
+    try {
+      const created = await api.bookCreate({
+        title: c.title,
+        authors: c.authors ?? undefined,
+        isbn: c.isbn ?? (digits || undefined),
+        year: c.year ?? undefined,
+        publisher: c.publisher ?? undefined,
+        pages: c.pages ?? undefined,
+        language: c.language ?? undefined,
+        cover_url: c.cover_url ?? undefined,
+        shelf_id: target,
+      });
+      api.coverCache(created.id).catch(() => {});
+      onShelfUsed(target);
+      // Полка могла быть создана прямо в селекте — путь берём у бэкенда.
+      const where = await api.locationBreadcrumb(target).catch(() => "");
+      note.ok(`«${c.title}» добавлена на полку ${where}.`);
+      setCandidates(null);
+      if (q.trim().length >= 2) await search(q.trim());
+    } catch (e) {
+      note.fail(`Не удалось добавить: ${String(e)}`);
+    }
   };
 
   return (
@@ -86,9 +113,7 @@ export function SearchView({ onOpenShelf }: { onOpenShelf: (id: number) => void 
             {hits.map((h, i) => (
               <div key={h.book.id} className="book-card" style={{ animationDelay: `${Math.min(i, 12) * 35}ms` }}>
                 <div className="book-card__spine" style={{ background: spineColor(h.book.id) }} />
-                {h.book.cover_url && (
-                  <img className="book-card__cover" src={h.book.cover_url} alt="" onError={(e) => (e.currentTarget.style.display = "none")} />
-                )}
+                <Cover book={h.book} dir={coversDir} className="book-card__cover" />
                 <div className="book-card__body">
                   <div className="book-card__title" style={{ cursor: "default" }}>{h.book.title}</div>
                   <div className="book-card__meta">
@@ -113,17 +138,12 @@ export function SearchView({ onOpenShelf }: { onOpenShelf: (id: number) => void 
             {candidates && candidates.length > 0 && (
               <>
                 <span className="label muted" style={{ marginLeft: "auto" }}>на полку</span>
-                <select className="select" value={target ?? ""} onChange={(e) => setTarget(Number(e.target.value) || null)}>
-                  <option value="">— выбери —</option>
-                  {shelves.map((s) => (
-                    <option key={s.id} value={s.id}>{s.name}{s.label ? ` · ${s.label}` : ""}</option>
-                  ))}
-                </select>
+                <ShelfSelect value={target} onChange={setTarget} />
               </>
             )}
           </div>
 
-          {note && <p className="small" style={{ color: "var(--green)" }}>{note}</p>}
+          <Note note={note.note} />
 
           <div className="stack">
             {candidates?.map((c, i) => (
@@ -139,7 +159,7 @@ export function SearchView({ onOpenShelf }: { onOpenShelf: (id: number) => void 
                     {c.authors && <span className="muted small">{c.authors}</span>}
                     {c.year && <span className="chip mono">{c.year}</span>}
                     {c.publisher && <span className="muted small">{c.publisher}</span>}
-                    <span className="chip">{c.source === "openlibrary" ? "Open Library" : c.source === "google" ? "Google Books" : c.source}</span>
+                    <span className="chip">{sourceLabel(c.source)}</span>
                   </div>
                   <div className="candidate__add">
                     <button className="btn btn--primary btn--sm" onClick={() => add(c)} disabled={!target}>

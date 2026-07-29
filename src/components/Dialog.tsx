@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useMemo, useState } from "react";
 
 // Встроенные диалоги вместо window.prompt/confirm/alert:
 // в macOS WKWebView нативный prompt() не работает (возвращает null).
@@ -29,7 +29,6 @@ type State =
 export function DialogProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<State>(null);
   const [value, setValue] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
 
   const api = useMemo<DialogApi>(
     () => ({
@@ -61,13 +60,20 @@ export function DialogProvider({ children }: { children: React.ReactNode }) {
     <Ctx.Provider value={api}>
       {children}
       {state && (
-        <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && cancel()}>
+        <div
+          className="modal-overlay"
+          onMouseDown={(e) => e.target === e.currentTarget && cancel()}
+          // Escape работал только внутри поля ввода — в confirm и alert диалог
+          // нечем было закрыть с клавиатуры.
+          onKeyDown={(e) => {
+            if (e.key === "Escape") { e.stopPropagation(); cancel(); }
+          }}
+        >
           <div className="modal" role="dialog" aria-modal="true">
             <div className="modal__title">{state.title}</div>
 
             {state.kind === "prompt" && (
               <input
-                ref={inputRef}
                 className="input"
                 style={{ width: "100%" }}
                 autoFocus
