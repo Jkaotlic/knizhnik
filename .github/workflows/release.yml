@@ -47,7 +47,23 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Подпись обновлений. Без этих двух секретов сборка пройдёт, но
+          # latest.json не будет подписан и автообновление не заработает.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Подпись и нотаризация под macOS: без них Gatekeeper на чужой машине
+          # скажет «приложение повреждено».
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
+          # Включить вместе с createUpdaterArtifacts в tauri.conf.json, когда
+          # появятся ключи подписи: без артефактов обновления генерировать
+          # latest.json нечем, и шаг падает.
+          includeUpdaterJson: false
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
           releaseName: 'Книжник ${{ github.ref_name }}'
           releaseBody: 'Установщики для Windows (.msi / .exe) и macOS (.dmg). Собрано автоматически через GitHub Actions.'
