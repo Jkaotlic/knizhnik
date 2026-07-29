@@ -47,18 +47,22 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Подпись обновлений. Без этих двух секретов сборка пройдёт, но
-          # latest.json не будет подписан и автообновление не заработает.
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # Подпись и нотаризация под macOS: без них Gatekeeper на чужой машине
-          # скажет «приложение повреждено».
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # ВНИМАНИЕ: не объявляй здесь переменные подписи «про запас».
+          # Отсутствующий секрет подставляется пустой строкой, а tauri-action
+          # считает переменную заданной и пытается импортировать пустой
+          # сертификат — сборка macOS падает на `security import`.
+          #
+          # Когда появятся ключи, добавь сюда СРАЗУ С НЕПУСТЫМИ секретами:
+          #
+          #   подпись обновлений (плюс createUpdaterArtifacts: true в
+          #   tauri.conf.json и includeUpdaterJson: true ниже):
+          #     TAURI_SIGNING_PRIVATE_KEY
+          #     TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+          #
+          #   подпись и нотаризация macOS, без них Gatekeeper на чужой машине
+          #   говорит «приложение повреждено»:
+          #     APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD,
+          #     APPLE_SIGNING_IDENTITY, APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID
         with:
           # Включить вместе с createUpdaterArtifacts в tauri.conf.json, когда
           # появятся ключи подписи: без артефактов обновления генерировать
