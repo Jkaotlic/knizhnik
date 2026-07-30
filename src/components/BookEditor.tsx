@@ -75,10 +75,13 @@ export function BookEditor({
   };
 
   const save = async () => {
-    if (!form.title.trim()) { setError("У книги должно быть название."); return; }
+    // Очистив поле, пользователь оставлял в форме `undefined` (пустая строка
+    // означает «не задано»), и `form.title.trim()` ронял весь экран.
+    const title = (form.title ?? "").trim();
+    if (!title) { setError("У книги должно быть название."); return; }
     setError(null);
     try {
-      const updated = await api.bookUpdate(book.id, form);
+      const updated = await api.bookUpdate(book.id, { ...form, title });
       onSaved?.(updated);
       onDone();
     } catch (e) {

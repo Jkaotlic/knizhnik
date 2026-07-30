@@ -69,6 +69,15 @@ pub struct BookInput {
     pub finished_at: Option<String>,
 }
 
+#[cfg(test)]
+impl BookInput {
+    /// Книга, у которой пока есть только название: в тестах остальные поля
+    /// дозаполняются по месту, и каждый раз выписывать двадцать `None` — шум.
+    pub fn titled(title: &str) -> Self {
+        Self { title: title.into(), ..Default::default() }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Stats {
     pub total: i64,

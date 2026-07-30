@@ -36,9 +36,14 @@ export function Cover({
 }) {
   const local = book.cover_path && dir ? convertFileSrc(`${dir}/${book.cover_path}`) : null;
   const [src, setSrc] = useState<string | null>(null);
+  // Сдались или нет — состояние React, а не инлайновый стиль на узле. Стиль,
+  // выставленный из onError, React обратно не убирает: книга, у которой
+  // обложка появилась позже, так и оставалась невидимой.
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     setSrc(local ?? book.cover_url ?? null);
+    setFailed(false);
   }, [local, book.cover_url]);
 
   if (!src) return null;
@@ -48,14 +53,14 @@ export function Cover({
       className={className}
       src={src}
       alt=""
-      onError={(e) => {
+      style={failed ? (hideOnError === "visibility" ? { visibility: "hidden" } : { display: "none" }) : undefined}
+      onError={() => {
         // локальный файл не открылся — пробуем сетевой, потом сдаёмся
         if (local && src === local && book.cover_url) {
           setSrc(book.cover_url);
           return;
         }
-        if (hideOnError === "visibility") e.currentTarget.style.visibility = "hidden";
-        else e.currentTarget.style.display = "none";
+        setFailed(true);
       }}
     />
   );

@@ -54,7 +54,7 @@ export function SearchView({
     try {
       const cands = await api.metadataLookupIsbn(q.trim());
       setCandidates(cands);
-      if (cands.length === 0) note.ok("По этому ISBN ничего не нашлось в Open Library и Google.");
+      if (cands.length === 0) note.ok("По этому ISBN ничего не нашлось ни в одном из каталогов.");
     } catch (e) {
       setCandidates([]);
       note.fail(String(e));

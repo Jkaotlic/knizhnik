@@ -123,8 +123,7 @@ mod tests {
         let root = locations::create(&conn, None, "Дом", "root", None).unwrap().id;
         let case = locations::create(&conn, Some(root), "Шкаф A", "bookcase", None).unwrap().id;
         let shelf = locations::create(&conn, Some(case), "Полка", "shelf", Some("A-3")).unwrap().id;
-        let mut i = BookInput::default();
-        i.title = "Дюна".into();
+        let mut i = BookInput::titled("Дюна");
         i.isbn = Some("9785171183660".into());
         i.shelf_id = Some(shelf);
         let book = books::insert(&conn, &i).unwrap();
@@ -165,8 +164,7 @@ mod tests {
         let mut conn = open_in_memory().unwrap();
         let root = locations::create(&conn, None, "Дом", "root", None).unwrap().id;
         let shelf = locations::create(&conn, Some(root), "Полка", "shelf", None).unwrap().id;
-        let mut i = BookInput::default();
-        i.title = "Дюна".into();
+        let mut i = BookInput::titled("Дюна");
         i.shelf_id = Some(shelf);
         books::insert(&conn, &i).unwrap();
 

@@ -8,6 +8,17 @@ fn clean_label(label: Option<&str>) -> Option<&str> {
     label.map(str::trim).filter(|s| !s.is_empty())
 }
 
+/// Человеческое название уровня — ошибки читает не программист.
+fn kind_ru(kind: &str) -> &str {
+    match kind {
+        "root" => "дом",
+        "room" => "комната",
+        "bookcase" => "шкаф",
+        "shelf" => "полка",
+        other => other,
+    }
+}
+
 fn clean_name(name: &str) -> Result<&str, AppError> {
     let n = name.trim();
     if n.is_empty() {
@@ -129,6 +140,17 @@ pub fn update(
     get(conn, id)
 }
 
+/// Уровни жёсткие: полка живёт в шкафу, шкаф — в комнате, комната — в доме.
+/// `None` — только у дома.
+fn expected_parent_kind(kind: &str) -> Option<&'static str> {
+    match kind {
+        "room" => Some("root"),
+        "bookcase" => Some("room"),
+        "shelf" => Some("bookcase"),
+        _ => None, // root
+    }
+}
+
 pub fn move_to(conn: &Connection, id: i64, new_parent_id: Option<i64>) -> Result<(), AppError> {
     // Перенос локации внутрь самой себя порвал бы дерево: рекурсивный брейдкрамб
     // и обход в UI зациклились бы. Проверяем до записи.
@@ -137,6 +159,38 @@ pub fn move_to(conn: &Connection, id: i64, new_parent_id: Option<i64>) -> Result
             return Err(AppError::Rule(
                 "Нельзя перенести локацию внутрь самой себя".into(),
             ));
+        }
+    }
+    // `create_shelf` уровни держит, а перенос их обходил: шкаф уезжал внутрь
+    // полки, и путь к книге начинал врать «Полка › Шкаф › Полка».
+    let moved = get(conn, id)?;
+    let wanted = expected_parent_kind(&moved.kind);
+    match (wanted, new_parent_id) {
+        (None, None) => {}
+        (None, Some(_)) => {
+            return Err(AppError::Rule(format!("«{}» — это дом, его некуда вкладывать", moved.name)))
+        }
+        (Some(kind), None) => {
+            return Err(AppError::Rule(format!(
+                "«{}» не может остаться без родителя: {} живёт внутри «{}»",
+                moved.name,
+                kind_ru(&moved.kind),
+                kind_ru(kind)
+            )))
+        }
+        (Some(kind), Some(target)) => {
+            let parent = get(conn, target)
+                .map_err(|_| AppError::Rule("Новый родитель не найден".into()))?;
+            if parent.kind != kind {
+                return Err(AppError::Rule(format!(
+                    "«{}» ({}) нельзя положить в «{}» ({}) — только в «{}»",
+                    moved.name,
+                    kind_ru(&moved.kind),
+                    parent.name,
+                    kind_ru(&parent.kind),
+                    kind_ru(kind)
+                )));
+            }
         }
     }
     conn.execute(
@@ -326,8 +380,7 @@ mod tests {
     fn delete_shelf_with_books_is_rejected() {
         let conn = open_in_memory().unwrap();
         let (_r, _room, _case, shelf) = tree(&conn);
-        let mut input = crate::db::models::BookInput::default();
-        input.title = "Дюна".into();
+        let mut input = crate::db::models::BookInput::titled("Дюна");
         input.shelf_id = Some(shelf);
         crate::db::books::insert(&conn, &input).unwrap();
         let err = delete(&conn, shelf).unwrap_err();
@@ -350,8 +403,7 @@ mod tests {
     fn delete_subtree_with_books_deeper_down_is_rejected() {
         let conn = open_in_memory().unwrap();
         let (_root, room, _case, shelf) = tree(&conn);
-        let mut input = crate::db::models::BookInput::default();
-        input.title = "Дюна".into();
+        let mut input = crate::db::models::BookInput::titled("Дюна");
         input.shelf_id = Some(shelf);
         crate::db::books::insert(&conn, &input).unwrap();
         // удаляем комнату, книга лежит на полке двумя уровнями ниже
@@ -364,11 +416,40 @@ mod tests {
     fn subtree_info_counts_descendants_and_books() {
         let conn = open_in_memory().unwrap();
         let (_root, room, _case, shelf) = tree(&conn);
-        let mut input = crate::db::models::BookInput::default();
-        input.title = "Дюна".into();
+        let mut input = crate::db::models::BookInput::titled("Дюна");
         input.shelf_id = Some(shelf);
         crate::db::books::insert(&conn, &input).unwrap();
         assert_eq!(subtree_info(&conn, room).unwrap(), (2, 1)); // шкаф + полка, 1 книга
+    }
+
+    /// `create_shelf` держит уровни строго (полка живёт только в шкафу),
+    /// а перенос эту же проверку обходил: шкаф уезжал внутрь полки, и путь
+    /// к книге начинал врать «Полка › Шкаф › Полка».
+    #[test]
+    fn move_refuses_to_break_the_level_order() {
+        let conn = open_in_memory().unwrap();
+        let (root, room, case, shelf) = tree(&conn);
+        let case2 = create(&conn, Some(room), "Шкаф B", "bookcase", None).unwrap().id;
+
+        assert!(move_to(&conn, case2, Some(shelf)).is_err(), "шкаф внутрь полки");
+        assert!(move_to(&conn, shelf, Some(room)).is_err(), "полка прямо в комнату");
+        assert!(move_to(&conn, shelf, Some(root)).is_err(), "полка в дом");
+        assert!(move_to(&conn, room, Some(case)).is_err(), "комната в шкаф");
+        // дерево не тронуто
+        assert_eq!(get(&conn, case2).unwrap().parent_id, Some(room));
+        assert_eq!(get(&conn, shelf).unwrap().parent_id, Some(case));
+
+        // законный перенос по-прежнему проходит
+        move_to(&conn, shelf, Some(case2)).unwrap();
+        assert_eq!(get(&conn, shelf).unwrap().parent_id, Some(case2));
+    }
+
+    #[test]
+    fn only_a_root_may_end_up_without_a_parent() {
+        let conn = open_in_memory().unwrap();
+        let (_root, room, _case, shelf) = tree(&conn);
+        assert!(move_to(&conn, shelf, None).is_err(), "полка не может висеть в воздухе");
+        assert!(move_to(&conn, room, None).is_err());
     }
 
     #[test]

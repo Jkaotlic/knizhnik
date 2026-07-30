@@ -11,6 +11,8 @@ pub fn dir(app_data: &Path) -> PathBuf {
     app_data.join("covers")
 }
 
+const EXTENSIONS: [&str; 4] = ["jpg", "png", "webp", "gif"];
+
 /// Имя файла выводим из id книги, а не из URL: URL меняется, id — нет.
 fn file_name(book_id: i64, content_type: Option<&str>) -> String {
     let ext = match content_type {
@@ -20,6 +22,20 @@ fn file_name(book_id: i64, content_type: Option<&str>) -> String {
         _ => "jpg",
     };
     format!("{book_id}.{ext}")
+}
+
+/// Расширение зависит от Content-Type, поэтому перекачанная обложка может лечь
+/// рядом со старой (`7.jpg` и `7.png`), и прежний файл останется на диске
+/// навсегда: в базе про него уже никто не помнит. Сносим все варианты этой же
+/// книги, кроме того, который сейчас запишем.
+fn forget_previous(app_data: &Path, book_id: i64, keep: &str) {
+    let covers = dir(app_data);
+    for ext in EXTENSIONS {
+        let name = format!("{book_id}.{ext}");
+        if name != keep {
+            let _ = std::fs::remove_file(covers.join(name));
+        }
+    }
 }
 
 /// Скачивает обложку и возвращает имя файла внутри каталога обложек.
@@ -66,6 +82,7 @@ pub async fn fetch(
     let name = file_name(book_id, content_type.as_deref());
     std::fs::write(covers.join(&name), &bytes)
         .map_err(|e| AppError::Rule(format!("Не сохранить обложку: {e}")))?;
+    forget_previous(app_data, book_id, &name);
     Ok(name)
 }
 
@@ -111,6 +128,39 @@ mod tests {
         assert!(!looks_like_image(b"<!DOCTYPE html><html>Not found"));
         assert!(!looks_like_image(b""));
         assert!(!looks_like_image(b"RIFF____AVI "));
+    }
+
+    /// Имя файла зависит от Content-Type, поэтому перекачанная обложка может
+    /// лечь рядом со старой (`7.jpg` и `7.png`). В базе останется только новая,
+    /// а старая будет лежать на диске вечно.
+    #[test]
+    fn a_new_cover_sweeps_away_the_previous_file_of_the_same_book() {
+        let tmp = std::env::temp_dir().join("knizhnik-covers-sweep");
+        std::fs::remove_dir_all(&tmp).ok();
+        let covers = dir(&tmp);
+        std::fs::create_dir_all(&covers).unwrap();
+        std::fs::write(covers.join("7.jpg"), "старая").unwrap();
+        std::fs::write(covers.join("8.jpg"), "чужая").unwrap();
+
+        forget_previous(&tmp, 7, "7.png");
+
+        assert!(!covers.join("7.jpg").exists(), "старый файл той же книги остался");
+        assert!(covers.join("8.jpg").exists(), "снесли обложку соседней книги");
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn rewriting_the_cover_with_the_same_extension_keeps_it() {
+        let tmp = std::env::temp_dir().join("knizhnik-covers-same-ext");
+        std::fs::remove_dir_all(&tmp).ok();
+        let covers = dir(&tmp);
+        std::fs::create_dir_all(&covers).unwrap();
+        std::fs::write(covers.join("7.jpg"), "она же").unwrap();
+
+        forget_previous(&tmp, 7, "7.jpg");
+
+        assert!(covers.join("7.jpg").exists(), "файл, который сейчас перезапишут, трогать нельзя");
+        std::fs::remove_dir_all(&tmp).ok();
     }
 
     #[test]

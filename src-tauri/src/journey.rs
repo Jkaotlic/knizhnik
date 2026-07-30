@@ -20,7 +20,7 @@ fn book(title: &str, isbn: Option<&str>, shelf: Option<i64>) -> BookInput {
 
 #[test]
 fn from_empty_catalogue_to_backup_and_back() {
-    let mut conn = open_in_memory().unwrap();
+    let conn = open_in_memory().unwrap();
 
     // 1. Полка заводится одним действием — служебные уровни поднимаются сами.
     let case = locations::create_bookcase(&conn, "Шкаф у окна").unwrap();

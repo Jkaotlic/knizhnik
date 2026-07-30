@@ -69,8 +69,7 @@ mod tests {
         let conn = open_in_memory().unwrap();
         let root = locations::create(&conn, None, "Дом", "root", None).unwrap().id;
         let shelf = locations::create(&conn, Some(root), "Полка", "shelf", Some("A-3")).unwrap().id;
-        let mut i = BookInput::default();
-        i.title = "Дюна; часть 1".into(); // проверяем экранирование
+        let mut i = BookInput::titled("Дюна; часть 1"); // точка с запятой — проверка экранирования
         i.authors = Some("Фрэнк Герберт".into());
         i.isbn = Some("9785171183660".into());
         i.shelf_id = Some(shelf);

@@ -68,10 +68,19 @@ pub fn insert(conn: &Connection, i: &BookInput) -> Result<Book, AppError> {
     get(conn, conn.last_insert_rowid())
 }
 
+/// Смена `cover_url` снимает с учёта скачанный файл: он остался от прежней
+/// ссылки, а `Cover` во фронте предпочитает локальный файл сетевому — без
+/// сброса книга навсегда показывала бы старую картинку, и «Скачать все
+/// обложки» её бы не догнало (там выбираются только пустые `cover_path`).
+/// SQLite считает правые части SET по исходной строке, поэтому `cover_url`
+/// в CASE — ещё старый.
 pub fn update(conn: &Connection, id: i64, i: &BookInput) -> Result<Book, AppError> {
     conn.execute(
         "UPDATE books SET title=?2, authors=?3, isbn=?4, year=?5, publisher=?6, pages=?7, \
-         language=?8, genre=?9, annotation=?10, cover_url=?11, shelf_id=?12, status=?13, \
+         language=?8, genre=?9, annotation=?10, \
+         cover_path = CASE WHEN COALESCE(cover_url,'') = COALESCE(?11,'') \
+                           THEN cover_path ELSE NULL END, \
+         cover_url=?11, shelf_id=?12, status=?13, \
          rating=?14, notes=?15, updated_at=?16, started_at=?17, finished_at=?18 WHERE id=?1",
         params![
             id, clean_title(&i.title)?, i.authors, clean_isbn(i.isbn.as_deref()), i.year,
@@ -216,6 +225,24 @@ fn like_pattern(query: &str) -> String {
     format!("%{escaped}%")
 }
 
+/// В базе ISBN лежит нормализованным, а вводят его с дефисами и пробелами —
+/// поэтому по ISBN ищем отдельно, по одним цифрам.
+///
+/// Но только если весь запрос и есть ISBN. Раньше цифры выдёргивались из
+/// любого текста: «Дюна 2» превращалось в `isbn LIKE '%2%'` и вытаскивало
+/// почти весь каталог — двойка есть в большинстве ISBN.
+fn isbn_fragment(query: &str) -> Option<String> {
+    let looks_like_isbn = query
+        .chars()
+        .all(|c| c.is_ascii_digit() || c == '-' || c == ' ' || c == 'x' || c == 'X');
+    if !looks_like_isbn {
+        return None;
+    }
+    let digits: String = query.chars().filter(char::is_ascii_digit).collect();
+    // «978» — самый короткий осмысленный префикс; короче начинается шум
+    (digits.len() >= 3).then_some(digits)
+}
+
 pub fn search(conn: &Connection, query: &str) -> Result<Vec<BookHit>, AppError> {
     if query.trim().is_empty() {
         return Ok(Vec::new());
@@ -223,10 +250,10 @@ pub fn search(conn: &Connection, query: &str) -> Result<Vec<BookHit>, AppError> 
     register_unicode_lower(conn)?;
     let query = query.trim();
     let like = like_pattern(query);
-    // В базе ISBN лежит нормализованным, а вводят его с дефисами — сравниваем
-    // отдельно по одним цифрам, иначе «978-5-17-118366-0» ничего не находит.
-    let digits: String = query.chars().filter(char::is_ascii_digit).collect();
-    let isbn_like = if digits.is_empty() { like.clone() } else { format!("%{digits}%") };
+    let isbn_like = match isbn_fragment(query) {
+        Some(digits) => format!("%{digits}%"),
+        None => like.clone(),
+    };
     let mut stmt = conn.prepare(&format!(
         "{SELECT_BOOK_COLS} WHERE \
          lower_uc(title) LIKE ?1 ESCAPE '\\' OR lower_uc(authors) LIKE ?1 ESCAPE '\\' OR \
@@ -334,8 +361,7 @@ mod tests {
     }
 
     fn book_on(conn: &Connection, shelf: i64, title: &str, authors: &str) -> Book {
-        let mut i = BookInput::default();
-        i.title = title.into();
+        let mut i = BookInput::titled(title);
         i.authors = Some(authors.into());
         i.shelf_id = Some(shelf);
         insert(conn, &i).unwrap()
@@ -356,8 +382,7 @@ mod tests {
         let conn = open_in_memory().unwrap();
         let s = shelf(&conn);
         let b = book_on(&conn, s, "Дюна", "Герберт");
-        let mut i = BookInput::default();
-        i.title = "Дюна".into();
+        let mut i = BookInput::titled("Дюна");
         i.authors = Some("Фрэнк Герберт".into());
         i.year = Some(2019);
         i.status = Some("read".into());
@@ -393,8 +418,7 @@ mod tests {
     fn exists_isbn_on_shelf_detects_duplicate() {
         let conn = open_in_memory().unwrap();
         let s = shelf(&conn);
-        let mut i = BookInput::default();
-        i.title = "Дюна".into();
+        let mut i = BookInput::titled("Дюна");
         i.isbn = Some("9785171183660".into());
         i.shelf_id = Some(s);
         insert(&conn, &i).unwrap();
@@ -409,8 +433,7 @@ mod tests {
         let root = locations::create(&conn, None, "Дача", "root", None).unwrap().id;
         let b = locations::create(&conn, Some(root), "Веранда", "shelf", None).unwrap().id;
         for shelf_id in [a, b] {
-            let mut i = BookInput::default();
-            i.title = "Будущее".into();
+            let mut i = BookInput::titled("Будущее");
             i.isbn = Some("9785171183660".into());
             i.shelf_id = Some(shelf_id);
             insert(&conn, &i).unwrap();
@@ -423,8 +446,7 @@ mod tests {
     #[test]
     fn duplicate_without_a_shelf_is_still_reported() {
         let conn = open_in_memory().unwrap();
-        let mut i = BookInput::default();
-        i.title = "Будущее".into();
+        let mut i = BookInput::titled("Будущее");
         i.isbn = Some("9785171183660".into());
         insert(&conn, &i).unwrap();
         assert_eq!(find_isbn_duplicates(&conn, "9785171183660").unwrap(), vec!["без полки"]);
@@ -436,8 +458,7 @@ mod tests {
         let s = shelf(&conn);
         book_on(&conn, s, "На полке", "Автор");
 
-        let mut i = BookInput::default();
-        i.title = "Забыл полку".into();
+        let mut i = BookInput::titled("Забыл полку");
         insert(&conn, &i).unwrap();
         i.title = "Тоже забыл".into();
         insert(&conn, &i).unwrap();
@@ -453,8 +474,7 @@ mod tests {
     fn assigning_a_shelf_removes_a_book_from_the_unshelved_list() {
         let conn = open_in_memory().unwrap();
         let s = shelf(&conn);
-        let mut i = BookInput::default();
-        i.title = "Забыл полку".into();
+        let i = BookInput::titled("Забыл полку");
         let b = insert(&conn, &i).unwrap();
         assert_eq!(without_shelf(&conn).unwrap().len(), 1);
 
@@ -480,8 +500,7 @@ mod tests {
     fn isbn_is_normalised_so_manual_entry_matches_scan() {
         let conn = open_in_memory().unwrap();
         let s = shelf(&conn);
-        let mut i = BookInput::default();
-        i.title = "Дюна".into();
+        let mut i = BookInput::titled("Дюна");
         i.isbn = Some("978-5-17-118366-0".into()); // как вводят руками
         i.shelf_id = Some(s);
         let b = insert(&conn, &i).unwrap();
@@ -493,8 +512,7 @@ mod tests {
     fn isbn_search_ignores_hyphens() {
         let conn = open_in_memory().unwrap();
         let s = shelf(&conn);
-        let mut i = BookInput::default();
-        i.title = "Дюна".into();
+        let mut i = BookInput::titled("Дюна");
         i.isbn = Some("9785171183660".into());
         i.shelf_id = Some(s);
         insert(&conn, &i).unwrap();
@@ -503,20 +521,76 @@ mod tests {
         assert_eq!(search(&conn, "978517").unwrap().len(), 1); // частичный ввод
     }
 
+    /// Цифра внутри обычного текстового запроса — не ISBN. Раньше из «Дюна 2»
+    /// вытаскивалась двойка, запрос превращался в `isbn LIKE '%2%'`, и в выдачу
+    /// падал весь каталог: двойка есть почти в каждом ISBN.
+    #[test]
+    fn a_digit_inside_a_text_query_does_not_match_isbns() {
+        let conn = open_in_memory().unwrap();
+        let s = shelf(&conn);
+        let mut i = BookInput::titled("Метро 2033");
+        i.isbn = Some("9785171183660".into());
+        i.shelf_id = Some(s);
+        insert(&conn, &i).unwrap();
+        book_on(&conn, s, "Дюна", "Фрэнк Герберт");
+
+        let hits = search(&conn, "дюна 2").unwrap();
+        assert!(hits.is_empty(), "текстовый запрос с цифрой выдал книги по ISBN: {hits:?}");
+
+        // а сам по себе цифровой запрос по-прежнему ищет по ISBN
+        assert_eq!(search(&conn, "9785171").unwrap().len(), 1);
+        // и название с цифрами продолжает находиться по названию
+        assert_eq!(search(&conn, "метро 2033").unwrap().len(), 1);
+    }
+
+    /// Правка ссылки на обложку должна снимать локальный файл с учёта: иначе
+    /// `cover_path` продолжает указывать на прежнюю картинку, вид книги
+    /// не меняется никогда, а «Скачать все обложки» такую книгу не видит —
+    /// она выбирает только те, у кого `cover_path` пуст.
+    #[test]
+    fn changing_the_cover_url_forgets_the_downloaded_file() {
+        let conn = open_in_memory().unwrap();
+        let s = shelf(&conn);
+        let mut i = BookInput::titled("Дюна");
+        i.cover_url = Some("http://x/old.jpg".into());
+        i.shelf_id = Some(s);
+        let b = insert(&conn, &i).unwrap();
+        set_cover_path(&conn, b.id, Some("1.jpg")).unwrap();
+        assert_eq!(get(&conn, b.id).unwrap().cover_path.as_deref(), Some("1.jpg"));
+
+        i.cover_url = Some("http://x/new.jpg".into());
+        let upd = update(&conn, b.id, &i).unwrap();
+        assert_eq!(upd.cover_path, None, "старый файл остался за новой ссылкой");
+        assert_eq!(needing_covers(&conn).unwrap().len(), 1, "книга должна попасть в докачку");
+    }
+
+    #[test]
+    fn editing_other_fields_keeps_the_downloaded_cover() {
+        let conn = open_in_memory().unwrap();
+        let s = shelf(&conn);
+        let mut i = BookInput::titled("Дюна");
+        i.cover_url = Some("http://x/c.jpg".into());
+        i.shelf_id = Some(s);
+        let b = insert(&conn, &i).unwrap();
+        set_cover_path(&conn, b.id, Some("1.jpg")).unwrap();
+
+        i.authors = Some("Фрэнк Герберт".into());
+        let upd = update(&conn, b.id, &i).unwrap();
+        assert_eq!(upd.cover_path.as_deref(), Some("1.jpg"), "перекачивать было незачем");
+    }
+
     #[test]
     fn rating_is_clamped_and_blank_title_rejected() {
         let conn = open_in_memory().unwrap();
         let s = shelf(&conn);
-        let mut i = BookInput::default();
-        i.title = "Дюна".into();
+        let mut i = BookInput::titled("Дюна");
         i.rating = Some(99);
         i.shelf_id = Some(s);
         assert_eq!(insert(&conn, &i).unwrap().rating, Some(5));
         i.rating = Some(-3);
         assert_eq!(insert(&conn, &i).unwrap().rating, Some(0));
 
-        let mut blank = BookInput::default();
-        blank.title = "   ".into();
+        let blank = BookInput::titled("   ");
         assert!(insert(&conn, &blank).is_err());
     }
 
@@ -524,8 +598,7 @@ mod tests {
     fn stats_counts_by_status_and_pages() {
         let conn = open_in_memory().unwrap();
         let s = shelf(&conn);
-        let mut i = BookInput::default();
-        i.title = "A".into();
+        let mut i = BookInput::titled("A");
         i.status = Some("read".into());
         i.pages = Some(300);
         i.genre = Some("Фантастика".into());

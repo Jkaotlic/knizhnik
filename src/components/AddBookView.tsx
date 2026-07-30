@@ -34,7 +34,7 @@ export function AddBookView({
     try {
       const cands = byIsbn ? await api.metadataLookupIsbn(q.trim()) : await api.metadataLookupTitle(q.trim());
       setCandidates(cands);
-      if (cands.length === 0) note.ok("Ничего не нашлось в Open Library и Google.");
+      if (cands.length === 0) note.ok("Ничего не нашлось ни в одном из каталогов.");
     } catch (e) {
       setCandidates([]);
       note.fail(String(e));

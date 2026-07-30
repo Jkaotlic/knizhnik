@@ -251,6 +251,20 @@ impl Sru {
         }
     }
 
+    /// ISBN — одно слово из цифр, кавычки ему не нужны.
+    fn isbn_query(&self, isbn: &str) -> String {
+        format!("{}={}", self.isbn_index, isbn)
+    }
+
+    /// В CQL пробел разделяет термы, поэтому `TIT=Метро 2033` — это не поиск
+    /// фразы, а синтаксическая ошибка. Название всегда уходит в кавычках,
+    /// а сами кавычки и слэши из него вычищаются: закрыв фразу посреди
+    /// запроса, они превратили бы остаток названия в синтаксис.
+    fn title_query(&self, title: &str) -> String {
+        let cleaned: String = title.chars().filter(|c| *c != '"' && *c != '\\').collect();
+        format!("{}=\"{}\"", self.title_index, cleaned.trim())
+    }
+
     async fn search(&self, query: &str) -> Result<Vec<MetadataCandidate>, AppError> {
         let resp = self
             .client
@@ -280,11 +294,11 @@ impl Sru {
 #[async_trait]
 impl MetadataProvider for Sru {
     async fn lookup_isbn(&self, isbn: &str) -> Result<Vec<MetadataCandidate>, AppError> {
-        self.search(&format!("{}={}", self.isbn_index, isbn)).await
+        self.search(&self.isbn_query(isbn)).await
     }
 
     async fn lookup_title(&self, title: &str) -> Result<Vec<MetadataCandidate>, AppError> {
-        self.search(&format!("{}={}", self.title_index, title)).await
+        self.search(&self.title_query(title)).await
     }
 
     fn name(&self) -> &'static str {
@@ -295,6 +309,31 @@ impl MetadataProvider for Sru {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// CQL разбирает пробел как разделитель термов, поэтому `TIT=Метро 2033` —
+    /// синтаксическая ошибка, а не поиск фразы. Каталог отвечал ошибкой или
+    /// мусором на любое название длиннее одного слова.
+    #[test]
+    fn a_multiword_title_is_sent_as_a_quoted_phrase() {
+        let dnb = Sru::dnb(reqwest::Client::new());
+        assert_eq!(dnb.title_query("Метро 2033"), "TIT=\"Метро 2033\"");
+        let loc = Sru::loc(reqwest::Client::new());
+        assert_eq!(loc.title_query("The Dispossessed"), "dc.title=\"The Dispossessed\"");
+    }
+
+    #[test]
+    fn quotes_inside_a_title_do_not_break_the_query() {
+        let dnb = Sru::dnb(reqwest::Client::new());
+        // кавычка закрыла бы фразу и всё, что дальше, каталог принял бы за синтаксис
+        assert_eq!(dnb.title_query("  Он сказал \"да\"  "), "TIT=\"Он сказал да\"");
+        assert_eq!(dnb.title_query("a\\b"), "TIT=\"ab\"");
+    }
+
+    #[test]
+    fn isbn_query_stays_a_bare_term() {
+        let dnb = Sru::dnb(reqwest::Client::new());
+        assert_eq!(dnb.isbn_query("9783453317246"), "NUM=9783453317246");
+    }
 
     #[test]
     fn parses_dnb_record_with_prefixed_tags() {
